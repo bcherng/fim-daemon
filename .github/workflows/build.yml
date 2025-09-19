@@ -3,36 +3,36 @@ name: Build and Upload Daemons
 on:
   push:
     branches: [ "main" ]
-
-build-linux:
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v3
-
-    - name: Build C Daemon
-      run: |
-        mkdir -p dist
-        gcc src/main.c -o dist/fim-daemon
-
-    - name: Package DEB
-      run: |
-        mkdir -p pkg/DEBIAN pkg/usr/bin
-        echo "Package: fim-daemon
-        Version: 1.0.0
-        Section: base
-        Priority: optional
-        Architecture: amd64
-        Maintainer: bcherng
-        Description: File Integrity Monitoring Daemon" > pkg/DEBIAN/control
-        cp dist/fim-daemon pkg/usr/bin/
-        dpkg-deb --build pkg dist/fim-daemon.deb
-
-    - name: Upload to EC2
-      uses: appleboy/scp-action@v0.1.7
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ubuntu
-        key: ${{ secrets.EC2_SSH_KEY }}
-        source: "dist/*"
-        target: "~/fim-distribution/public/downloads"
-
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+  
+      - name: Build C Daemon
+        run: |
+          mkdir -p dist
+          gcc src/main.c -o dist/fim-daemon
+  
+      - name: Package DEB
+        run: |
+          mkdir -p pkg/DEBIAN pkg/usr/bin
+          echo "Package: fim-daemon
+          Version: 1.0.0
+          Section: base
+          Priority: optional
+          Architecture: amd64
+          Maintainer: bcherng
+          Description: File Integrity Monitoring Daemon" > pkg/DEBIAN/control
+          cp dist/fim-daemon pkg/usr/bin/
+          dpkg-deb --build pkg dist/fim-daemon.deb
+  
+      - name: Upload to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "dist/*"
+          target: "~/fim-distribution/public/downloads"
+  
