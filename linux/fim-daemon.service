@@ -1,0 +1,11 @@
+[Unit]
+Description=FIM Daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/fim-daemon --server 18.188.156.219
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
