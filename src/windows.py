@@ -90,8 +90,11 @@ class ChangeHandler(FileSystemEventHandler):
                 break
         path_info = get_merkle_path(self.tree, self.files, event.src_path)
         print(f"Change detected: {event.src_path}")
-        print(f"Merkle path: {path_info['merkle_path']}")
-        print(f"New root: {path_info['root_hash']}")
+        if path_info:
+            print(f"Merkle path: {path_info['merkle_path']}")
+            print(f"New root: {path_info['root_hash']}")
+        else:
+            print(f"File {event.src_path} not tracked in Merkle tree yet.")
 
 if __name__ == "__main__":
     tree, files = build_merkle_tree(WATCH_DIR)
