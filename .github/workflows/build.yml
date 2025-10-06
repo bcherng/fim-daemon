@@ -37,7 +37,7 @@ jobs:
       - name: Verify EXE output
         shell: pwsh
         run: |
-          if (!(Test-Path "..\fim-daemon-setup.exe")) {
+          if (!(Test-Path ".\fim-daemon-setup.exe")) {
             Write-Error "Installer not found!"
             exit 1
           }
