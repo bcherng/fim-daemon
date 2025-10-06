@@ -1,38 +1,60 @@
-name: Build and Upload Daemons
+name: Build and Upload Windows FIM Daemon
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+  build-windows:
+    runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v3
-  
-      - name: Build C Daemon
+      # Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Set up Python
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Install Python dependencies
+      - name: Install dependencies
         run: |
-          mkdir -p dist
-          gcc src/main.c -o dist/fim-daemon
-  
-      - name: Package DEB
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+        shell: pwsh
+
+      # Create dist folder
+      - name: Create dist folder
+        run: New-Item -ItemType Directory -Path src\dist -Force
+        shell: pwsh
+
+      # Build the EXE installer
+      - name: Build Windows Installer (.exe)
         run: |
-          mkdir -p pkg/DEBIAN pkg/usr/bin
-          echo "Package: fim-daemon
-          Version: 1.0.0
-          Section: base
-          Priority: optional
-          Architecture: amd64
-          Maintainer: bcherng
-          Description: File Integrity Monitoring Daemon" > pkg/DEBIAN/control
-          cp dist/fim-daemon pkg/usr/bin/
-          dpkg-deb --build pkg dist/fim-daemon.deb
-  
+          cd src
+          ps2exe .\install.ps1 .\dist\fim-daemon-setup.exe -noConsole
+          echo "Installer built at src\dist\fim-daemon-setup.exe"
+        shell: pwsh
+
+      # Check that the installer exists
+      - name: Verify build output
+        run: |
+          if (!(Test-Path "src\dist\fim-daemon-setup.exe")) {
+            Write-Error "Installer not found!"
+            exit 1
+          }
+        shell: pwsh
+
+      # Upload to EC2
       - name: Upload to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "dist/*"
+          source: "src/dist/fim-daemon-setup.exe"
           target: "~/fim-distribution/public/downloads"
-  
