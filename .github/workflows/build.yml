@@ -1,60 +1,52 @@
-name: Build and Upload Windows FIM Daemon
+name: Build and Upload Windows Daemon
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
 
 jobs:
   build-windows:
     runs-on: windows-latest
 
     steps:
-      # Checkout repo
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Set up Python
-      - name: Setup Python 3.12
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      # Install Python dependencies
-      - name: Install dependencies
+      - name: Install Python dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install -r src/requirements.txt
-        shell: pwsh
 
-      # Create dist folder
-      - name: Create dist folder
-        run: New-Item -ItemType Directory -Path src\dist -Force
+      - name: Install PS2EXE module
         shell: pwsh
+        run: |
+          Install-Module -Name PS2EXE -Scope CurrentUser -Force -AllowClobber
 
-      # Build the EXE installer
-      - name: Build Windows Installer (.exe)
+      - name: Build EXE installer
+        shell: pwsh
         run: |
           cd src
-          ps2exe .\install.ps1 .\dist\fim-daemon-setup.exe -noConsole
-          echo "Installer built at src\dist\fim-daemon-setup.exe"
-        shell: pwsh
+          ps2exe .\install.ps1 ..\fim-daemon-setup.exe -noConsole
+          Write-Host "EXE built at src\fim-daemon-setup.exe"
 
-      # Check that the installer exists
-      - name: Verify build output
+      - name: Verify EXE output
+        shell: pwsh
         run: |
-          if (!(Test-Path "src\dist\fim-daemon-setup.exe")) {
+          if (!(Test-Path "..\fim-daemon-setup.exe")) {
             Write-Error "Installer not found!"
             exit 1
           }
-        shell: pwsh
 
-      # Upload to EC2
-      - name: Upload to EC2
+      - name: Upload EXE to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "src/dist/fim-daemon-setup.exe"
+          source: "src/fim-daemon-setup.exe"
           target: "~/fim-distribution/public/downloads"
