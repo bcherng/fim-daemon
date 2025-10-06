@@ -20,6 +20,11 @@ jobs:
         run: |
           pip install -r src/requirements.txt
 
+      - name: Install PS2EXE module
+        shell: pwsh
+        run: |
+          Install-Module -Name PS2EXE -Scope CurrentUser -Force -AllowClobber
+          
       - name: Build Windows Installer (.exe)
         shell: pwsh
         run: |
