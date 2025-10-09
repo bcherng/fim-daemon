@@ -29,7 +29,7 @@ jobs:
         shell: pwsh
         run: |
           cd src
-          ps2exe .\install.ps1 ..\fim-daemon-setup.exe -include "fim_daemon.py,fim_service.py,requirements.txt" -noConsole
+          ps2exe .\install.ps1 ..\fim-daemon-setup.exe -noConsole
           echo "Installer built at src\fim-daemon-setup.exe"
 
       - name: Upload EXE as artifact
