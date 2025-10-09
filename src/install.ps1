@@ -1,51 +1,57 @@
-# install.ps1
-param (
-    [string]$InstallDir = "C:\Program Files\FimDaemon"
-)
+# =============================
+# install.ps1 - FIM Daemon Installer
+# =============================
 
-Write-Host "Installing File Integrity Monitoring Daemon..." -ForegroundColor Cyan
+# Determine directory of EXE/script
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$targetDir = "C:\Program Files\FIM-Daemon"
 
-# Ensure admin rights
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Host "Please run this script as Administrator!" -ForegroundColor Red
+# Create target directory
+if (-not (Test-Path $targetDir)) {
+    New-Item -ItemType Directory -Path $targetDir | Out-Null
+    Write-Host "Created directory: $targetDir"
+}
+
+# Copy bundled Python files
+$filesToCopy = @("fim_daemon.py","fim_service.py","requirements.txt")
+foreach ($file in $filesToCopy) {
+    $src = Join-Path $scriptDir $file
+    $dst = Join-Path $targetDir $file
+    if (Test-Path $src) {
+        Copy-Item $src $dst -Force
+        Write-Host "Copied $file to $targetDir"
+    } else {
+        Write-Warning "File missing: $file"
+    }
+}
+
+# Check if Python 3.12 is installed
+$pythonPath = (Get-Command python -ErrorAction SilentlyContinue).Source
+if (-not $pythonPath) {
+    Write-Error "Python 3.12+ not found. Please install Python first."
     exit 1
 }
 
-# Install Python if missing
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    Write-Host "Python not found, installing..."
-    $pythonInstaller = "$env:TEMP\python_installer.exe"
-    Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.12.5/python-3.12.5-amd64.exe" -OutFile $pythonInstaller
-    Start-Process -FilePath $pythonInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1" -Wait
-    Write-Host "Python installed."
-}
-
-# Create install directory
-if (-not (Test-Path $InstallDir)) {
-    New-Item -Path $InstallDir -ItemType Directory | Out-Null
-}
-
-# Copy files
-Write-Host "Copying daemon files to $InstallDir..."
-Copy-Item -Path ".\fim_daemon.py" -Destination $InstallDir -Force
-Copy-Item -Path ".\fim_service.py" -Destination $InstallDir -Force
-Copy-Item -Path ".\requirements.txt" -Destination $InstallDir -Force
-
-# Install dependencies
+# Install Python dependencies
 Write-Host "Installing Python dependencies..."
-Start-Process -FilePath "python" -ArgumentList "-m pip install --upgrade pip" -Wait
-Start-Process -FilePath "python" -ArgumentList "-m pip install -r `"$InstallDir\requirements.txt`"" -Wait
+pip install --upgrade pip
+pip install -r (Join-Path $targetDir "requirements.txt")
 
-# Register service
-Write-Host "Registering Windows service..."
-Start-Process -FilePath "python" -ArgumentList "`"$InstallDir\fim_service.py`" install" -Wait
-Start-Process -FilePath "python" -ArgumentList "`"$InstallDir\fim_service.py`" start" -Wait
+# Create a Windows service for the daemon
+$serviceName = "FIMDaemon"
+$exePath = "python"
+$args = "`"$targetDir\fim_service.py`""
 
-# Set startup type to auto
-sc.exe config FimDaemon start= auto | Out-Null
+# Check if service already exists
+if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+    Write-Host "Service '$serviceName' already exists. Restarting..."
+    Restart-Service $serviceName
+} else {
+    New-Service -Name $serviceName -BinaryPathName "$exePath $args" `
+        -DisplayName "File Integrity Monitoring Daemon" -Description "Monitors file integrity and reports to server" `
+        -StartupType Automatic
+    Start-Service $serviceName
+    Write-Host "Service '$serviceName' installed and started."
+}
 
 Write-Host "Installation complete!"
-Write-Host "The service 'FimDaemon' will start automatically at boot."
-Write-Host "You can manage it using 'services.msc' or:"
-Write-Host "  python $InstallDir\fim_service.py stop"
-Write-Host "  python $InstallDir\fim_service.py remove"
