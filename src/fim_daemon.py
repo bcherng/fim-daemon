@@ -1,12 +1,29 @@
 import hashlib
 import os
 import time
+import configparser
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-WATCH_DIR = r"C:\Users\brian\Documents\fim-daemon\New folder"
-HOST_ID = "win01"
-BASELINE_ID = 1
+# Read configuration
+def load_config():
+    config = configparser.ConfigParser()
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
+    
+    if os.path.exists(config_path):
+        config.read(config_path)
+        watch_dir = config.get('Settings', 'WATCH_DIR', fallback=r"C:\Users")
+        host_id = config.get('Settings', 'HOST_ID', fallback="win01")
+        baseline_id = config.getint('Settings', 'BASELINE_ID', fallback=1)
+    else:
+        # Default values if config file doesn't exist
+        watch_dir = r"C:\Users"
+        host_id = "win01"
+        baseline_id = 1
+    
+    return watch_dir, host_id, baseline_id
+
+WATCH_DIR, HOST_ID, BASELINE_ID = load_config()
 
 def sha256_file(path):
     h = hashlib.sha256()
@@ -180,10 +197,14 @@ def get_merkle_path(tree, files, changed_path):
     root_hash = tree[0][0].hex()
     return {"root_hash": root_hash, "merkle_path": path_hashes, "leaf_index": leaf_idx}
 
-
 def main():
     print("File Integrity Monitor starting...")
     print(f"Watching directory: {WATCH_DIR}")
+    
+    # Ensure watch directory exists
+    if not os.path.exists(WATCH_DIR):
+        print(f"Creating watch directory: {WATCH_DIR}")
+        os.makedirs(WATCH_DIR, exist_ok=True)
     
     tree, files = build_merkle_tree(WATCH_DIR)
     
@@ -207,6 +228,5 @@ def main():
         print("\nMonitoring stopped.")
     observer.join()
 
-    
 if __name__ == "__main__":
     main()
