@@ -18,4 +18,4 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           source: src/Output/FIM-Daemon-Setup.exe
-          target: ~/fim-distribution/public/downloads/FIM-Daemon-Setup.exe
+          target: ~/fim-distribution/public/downloads/
