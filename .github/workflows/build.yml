@@ -1,43 +1,10 @@
-name: Build and Upload Daemons
+name: Upload Installers
 
 on:
   push:
     branches: [ "main" ]
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: |
-          pip install -r src/requirements.txt
-
-      - name: Install PS2EXE module
-        shell: pwsh
-        run: |
-          Install-Module -Name PS2EXE -Scope CurrentUser -Force -AllowClobber
-          
-      - name: Build Windows Installer (.exe)
-        shell: pwsh
-        run: |
-          cd src
-          ps2exe .\install.ps1 .\fim-daemon-setup.exe -noConsole
-          echo "Installer built at src\fim-daemon-setup.exe"
-
-      - name: Upload EXE as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fim-daemon-setup
-          path: src/fim-daemon-setup.exe
-
   upload-to-ec2:
     runs-on: ubuntu-latest
     needs: build-windows
@@ -45,16 +12,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download EXE artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: fim-daemon-setup
-
-      - name: Upload to EC2
+      - name: Upload Windows installer to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: fim-daemon-setup.exe
+          source: src/Output/FIM-Daemon-Setup.exe
           target: ~/fim-distribution/public/downloads
