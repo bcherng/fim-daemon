@@ -17,6 +17,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup Inno Setup
+      uses: gamesight/innosetup-action@v1.2
+      with:
+        version: 6.2.2
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -27,21 +32,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Download and Install Inno Setup
-      run: |
-        $innoUrl = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
-        $installer = "innosetup.exe"
-        Invoke-WebRequest -Uri $innoUrl -OutFile $installer
-        Start-Process -FilePath $installer -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
-        Start-Sleep -Seconds 10
-        Remove-Item $installer -Force
-
     - name: Compile Windows Installer
       run: |
-        $innoCompiler = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-        & "$innoCompiler" "packaging/installer.iss"
+        iscc packaging/installer.iss
         
-        # Create build directory if it doesn't exist
         if (!(Test-Path "build")) { New-Item -ItemType Directory -Path "build" }
         Move-Item "Output/*.exe" "build/" -ErrorAction SilentlyContinue
 
