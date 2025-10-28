@@ -12,7 +12,7 @@ jobs:
     defaults:
       run:
         working-directory: ./src/windows
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -26,44 +26,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-
-    - name: Download NSSM
-      run: |
-        $nssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
-        $zipFile = "nssm.zip"
-        Invoke-WebRequest -Uri $nssmUrl -OutFile $zipFile
-        Expand-Archive -Path $zipFile -DestinationPath "nssm-temp" -Force
-        Move-Item "nssm-temp/nssm-2.24/win64/nssm.exe" "packaging/nssm.exe"
-        Remove-Item "nssm-temp" -Recurse -Force
-        Remove-Item $zipFile -Force
-
-    - name: Create configuration files
-      run: |
-        # Create requirements.txt if not exists
-        if (!(Test-Path "requirements.txt")) {
-          "watchdog==3.0.0`npywin32==306`n" | Out-File -FilePath "requirements.txt"
-        }
-        
-        # Create config.ini
-        @"
-[Settings]
-WATCH_DIR=C:\ProgramData\FIM-Daemon\watch-folder
-HOST_ID=win01
-BASELINE_ID=1
-"@ | Out-File -FilePath "packaging/config.ini" -Encoding ASCII
-
-        # Create dependency installer
-        @"
-@echo off
-echo Installing Python dependencies for FIM Daemon...
-python -m pip install watchdog pywin32
-if %ERRORLEVEL% EQU 0 (
-    echo Dependencies installed successfully.
-) else (
-    echo Failed to install dependencies.
-    pause
-)
-"@ | Out-File -FilePath "packaging/install_dependencies.bat" -Encoding ASCII
 
     - name: Download and Install Inno Setup
       run: |
@@ -81,7 +43,7 @@ if %ERRORLEVEL% EQU 0 (
         
         # Create build directory if it doesn't exist
         if (!(Test-Path "build")) { New-Item -ItemType Directory -Path "build" }
-        Move-Item "Output/*.exe" "build/"
+        Move-Item "Output/*.exe" "build/" -ErrorAction SilentlyContinue
 
     - name: Upload Windows Artifact
       uses: actions/upload-artifact@v4
@@ -96,10 +58,20 @@ if %ERRORLEVEL% EQU 0 (
     defaults:
       run:
         working-directory: ./src/linux
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y dpkg-dev debhelper fakeroot
 
     - name: Build DEB package
       run: |
@@ -124,9 +96,6 @@ if %ERRORLEVEL% EQU 0 (
       uses: actions/download-artifact@v4
       with:
         path: ./artifacts
-
-    - name: Display structure
-      run: find artifacts/ -type f
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
