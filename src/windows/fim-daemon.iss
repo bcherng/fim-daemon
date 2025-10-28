@@ -15,7 +15,7 @@ WizardStyle=modern
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; Use Source paths relative to the .iss file location
+; All files are in the same directory as the ISS file
 Source: "fim_daemon_windows.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.ini"; DestDir: "{app}"; Flags: ignoreversion
