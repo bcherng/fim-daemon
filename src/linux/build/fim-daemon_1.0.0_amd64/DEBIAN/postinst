@@ -1,0 +1,22 @@
+#!/bin/bash
+set -e
+
+echo "Installing Python dependencies..."
+pip3 install watchdog python-daemon
+
+echo "Creating directories and service user..."
+mkdir -p /var/lib/fim-daemon/watch-folder
+chmod 755 /var/lib/fim-daemon /var/lib/fim-daemon/watch-folder
+
+if ! id "fim-daemon" &>/dev/null; then
+    useradd -r -s /bin/false -d /var/lib/fim-daemon fim-daemon
+fi
+
+chown -R fim-daemon:fim-daemon /var/lib/fim-daemon /var/log/fim-daemon
+
+echo "Setting up systemd service..."
+systemctl daemon-reload
+systemctl enable fim-daemon
+
+echo "FIM Daemon installed successfully!"
+echo "Start with: systemctl start fim-daemon"
