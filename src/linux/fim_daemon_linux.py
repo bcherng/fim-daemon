@@ -4,7 +4,7 @@ import os
 import time
 import logging
 import signal
-import daemon
+import hashlib
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -39,26 +39,6 @@ class FIMEventHandler(FileSystemEventHandler):
         self.tree = tree
         self.files = files
         self.config = config
-
-    def update_merkle_tree(self, changed_index, new_hash):
-        level_idx = len(self.tree) - 1
-        self.tree[level_idx][changed_index] = new_hash
-        idx = changed_index
-        
-        while level_idx > 0:
-            parent_idx = idx // 2
-            left_idx = parent_idx * 2
-            right_idx = left_idx + 1
-            
-            level = self.tree[level_idx]
-            left_hash = level[left_idx]
-            right_hash = level[right_idx] if right_idx < len(level) else left_hash
-            
-            parent_hash = hashlib.sha256(left_hash + right_hash).digest()
-            self.tree[level_idx-1][parent_idx] = parent_hash
-            
-            idx = parent_idx
-            level_idx -= 1
 
     def on_created(self, event):
         if event.is_directory:
@@ -95,7 +75,8 @@ class FIMEventHandler(FileSystemEventHandler):
                     return
                     
                 self.files[i] = (path, h)
-                self.update_merkle_tree(i, h)
+                # For Linux, we'll rebuild the tree for simplicity
+                self.tree, self.files = build_merkle_tree(self.files)
                 
                 path_info = get_merkle_path(self.tree, self.files, event.src_path)
                 self.config.logger.info(f"Change detected: {event.src_path}")
@@ -123,7 +104,6 @@ class FIMDaemon:
         
     def build_initial_tree(self, directory):
         files = []
-        inaccessible_files = []
         
         for root, _, filenames in os.walk(directory):
             for fname in filenames:
@@ -131,11 +111,6 @@ class FIMDaemon:
                 h = sha256_file(path)
                 if h:
                     files.append((path, h))
-                else:
-                    inaccessible_files.append(path)
-        
-        if inaccessible_files:
-            self.config.logger.warning(f"{len(inaccessible_files)} files inaccessible")
         
         return build_merkle_tree(files)
 
@@ -189,15 +164,6 @@ class FIMDaemon:
             
         self.config.logger.info("FIM Daemon stopped")
 
-def main():
-    daemon = FIMDaemon()
-    
-    # Run as daemon in production
-    if len(sys.argv) > 1 and sys.argv[1] == "--foreground":
-        daemon.run()
-    else:
-        with daemon.DaemonContext():
-            daemon.run()
-
 if __name__ == "__main__":
-    main()
+    daemon = FIMDaemon()
+    daemon.run()

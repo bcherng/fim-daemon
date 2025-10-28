@@ -1,0 +1,6 @@
+#!/bin/bash
+set -e
+
+echo "Stopping FIM Daemon service..."
+systemctl stop fim-daemon || true
+systemctl disable fim-daemon || true
