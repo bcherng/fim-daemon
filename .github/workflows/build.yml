@@ -9,9 +9,6 @@ jobs:
   build-windows:
     name: Build Windows Installer
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: ./src/windows
 
     steps:
     - name: Checkout code
@@ -33,11 +30,17 @@ jobs:
 
     - name: Compile Windows Installer
       run: |
-        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
+        # Copy the main Python script to the packaging directory
+        Copy-Item "src/windows/fim_daemon_windows.py" "src/windows/packaging/"
         
-        if (!(Test-Path "build")) { New-Item -ItemType Directory -Path "build" }
+        # Run ISCC from the packaging directory where all files are located
+        cd src/windows/packaging
+        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer.iss"
+        
+        # Move the built installer
+        if (!(Test-Path "../build")) { New-Item -ItemType Directory -Path "../build" }
         if (Test-Path "Output\*.exe") {
-            Move-Item "Output\*.exe" "build\"
+            Move-Item "Output\*.exe" "../build\"
         }
 
     - name: Upload Windows installer to EC2
@@ -46,7 +49,7 @@ jobs:
         host: ${{ secrets.EC2_HOST }}
         username: ubuntu
         key: ${{ secrets.EC2_SSH_KEY }}
-        source: "build/*.exe"
+        source: "src/windows/build/*.exe"
         target: "/home/ubuntu/fim-distribution/public/downloads/"
 
   build-linux:

@@ -8,3 +8,4 @@ Maintainer: Brian Cherng (briancherngsch@gmail.com)
 Description: File Integrity Monitor Daemon
  Real-time file integrity monitoring using Merkle trees
  and cryptographic verification.
+ 

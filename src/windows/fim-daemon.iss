@@ -1,10 +1,10 @@
 [Setup]
 AppName=File Integrity Monitor Daemon
 AppVersion=1.0
-AppPublisher=bcherng
+AppPublisher=Brian Cherng (bcherng@github)
 DefaultDirName={commonpf}\FIM-Daemon
 DefaultGroupName=File Integrity Monitor
-OutputDir=..\build
+OutputDir=Output
 OutputBaseFilename=FIM-Daemon-Setup
 Compression=lzma
 SolidCompression=yes
@@ -15,13 +15,12 @@ WizardStyle=modern
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "..\fim_daemon_windows.py"; DestDir: "{app}"; Flags: ignoreversion
+; Use Source paths relative to the .iss file location
+Source: "fim_daemon_windows.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.ini"; DestDir: "{app}"; Flags: ignoreversion
 Source: "install_dependencies.bat"; DestDir: "{app}"; Flags: ignoreversion
 
-; Include core modules
-Source: "..\..\core\*"; DestDir: "{app}\core"; Flags: ignoreversion recursesubdirs
 [Run]
 Filename: "{app}\install_dependencies.bat"; Flags: runhidden waituntilterminated; StatusMsg: "Installing dependencies..."
 Filename: "{app}\nssm.exe"; Parameters: "install FIM-Daemon python ""{app}\fim_daemon_windows.py"""; Flags: runhidden waituntilterminated; StatusMsg: "Installing service..."
