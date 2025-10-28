@@ -1,21 +1,136 @@
-name: Upload Installers
+name: Build and Release FIM Daemon
 
 on:
   push:
-    branches: [ "main" ]
+    tags: ['v*']
+  workflow_dispatch:
 
 jobs:
-  upload-to-ec2:
-    runs-on: ubuntu-latest
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ./src/windows
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Upload Windows installer to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: src/Output/FIM-Daemon-Setup.exe
-          target: ~/fim-distribution/public/downloads/
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Download NSSM
+      run: |
+        $nssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
+        $zipFile = "nssm.zip"
+        Invoke-WebRequest -Uri $nssmUrl -OutFile $zipFile
+        Expand-Archive -Path $zipFile -DestinationPath "nssm-temp" -Force
+        Move-Item "nssm-temp/nssm-2.24/win64/nssm.exe" "packaging/nssm.exe"
+        Remove-Item "nssm-temp" -Recurse -Force
+        Remove-Item $zipFile -Force
+
+    - name: Create configuration files
+      run: |
+        # Create requirements.txt if not exists
+        if (!(Test-Path "requirements.txt")) {
+          "watchdog==3.0.0`npywin32==306`n" | Out-File -FilePath "requirements.txt"
+        }
+        
+        # Create config.ini
+        @"
+[Settings]
+WATCH_DIR=C:\ProgramData\FIM-Daemon\watch-folder
+HOST_ID=win01
+BASELINE_ID=1
+"@ | Out-File -FilePath "packaging/config.ini" -Encoding ASCII
+
+        # Create dependency installer
+        @"
+@echo off
+echo Installing Python dependencies for FIM Daemon...
+python -m pip install watchdog pywin32
+if %ERRORLEVEL% EQU 0 (
+    echo Dependencies installed successfully.
+) else (
+    echo Failed to install dependencies.
+    pause
+)
+"@ | Out-File -FilePath "packaging/install_dependencies.bat" -Encoding ASCII
+
+    - name: Download and Install Inno Setup
+      run: |
+        $innoUrl = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
+        $installer = "innosetup.exe"
+        Invoke-WebRequest -Uri $innoUrl -OutFile $installer
+        Start-Process -FilePath $installer -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-" -Wait
+        Start-Sleep -Seconds 10
+        Remove-Item $installer -Force
+
+    - name: Compile Windows Installer
+      run: |
+        $innoCompiler = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+        & "$innoCompiler" "packaging/installer.iss"
+        
+        # Create build directory if it doesn't exist
+        if (!(Test-Path "build")) { New-Item -ItemType Directory -Path "build" }
+        Move-Item "Output/*.exe" "build/"
+
+    - name: Upload Windows Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-installer
+        path: src/windows/build/*.exe
+        retention-days: 30
+
+  build-linux:
+    name: Build Linux Package
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./src/linux
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build DEB package
+      run: |
+        chmod +x packaging/build-deb.sh
+        ./packaging/build-deb.sh
+
+    - name: Upload Linux Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-package
+        path: src/linux/build/*.deb
+        retention-days: 30
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Download Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+
+    - name: Display structure
+      run: find artifacts/ -type f
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          artifacts/windows-installer/*.exe
+          artifacts/linux-package/*.deb
