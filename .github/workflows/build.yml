@@ -17,8 +17,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup Inno Setup
-      uses: gamesight/innosetup-action@v1.2
+    - name: Install Inno Setup
+      uses: einaregilsson/innosetup@v1.2
       with:
         version: 6.2.2
 
@@ -34,10 +34,10 @@ jobs:
 
     - name: Compile Windows Installer
       run: |
-        iscc packaging/installer.iss
+        ISCC.exe packaging\installer.iss
         
         if (!(Test-Path "build")) { New-Item -ItemType Directory -Path "build" }
-        Move-Item "Output/*.exe" "build/" -ErrorAction SilentlyContinue
+        Move-Item "Output\*.exe" "build\" -ErrorAction SilentlyContinue
 
     - name: Upload Windows installer to EC2
       uses: appleboy/scp-action@v0.1.7
