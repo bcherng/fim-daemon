@@ -1,8 +1,8 @@
-name: Build and Release FIM Daemon
+name: Build and Deploy FIM Daemon
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -45,12 +45,14 @@ jobs:
         if (!(Test-Path "build")) { New-Item -ItemType Directory -Path "build" }
         Move-Item "Output/*.exe" "build/" -ErrorAction SilentlyContinue
 
-    - name: Upload Windows Artifact
-      uses: actions/upload-artifact@v4
+    - name: Upload Windows installer to EC2
+      uses: appleboy/scp-action@v0.1.7
       with:
-        name: windows-installer
-        path: src/windows/build/*.exe
-        retention-days: 30
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        source: "build/*.exe"
+        target: "/home/ubuntu/fim-distribution/public/downloads/"
 
   build-linux:
     name: Build Linux Package
@@ -78,28 +80,28 @@ jobs:
         chmod +x packaging/build-deb.sh
         ./packaging/build-deb.sh
 
-    - name: Upload Linux Artifact
-      uses: actions/upload-artifact@v4
+    - name: Upload Linux package to EC2
+      uses: appleboy/scp-action@v0.1.7
       with:
-        name: linux-package
-        path: src/linux/build/*.deb
-        retention-days: 30
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        source: "build/*.deb"
+        target: "/home/ubuntu/fim-distribution/public/downloads/"
 
-  release:
-    name: Create Release
+  verify-deployment:
+    name: Verify Deployment
     runs-on: ubuntu-latest
     needs: [build-windows, build-linux]
-    if: startsWith(github.ref, 'refs/tags/')
     
     steps:
-    - name: Download Artifacts
-      uses: actions/download-artifact@v4
+    - name: Verify files on EC2
+      uses: appleboy/ssh-action@v1.0.3
       with:
-        path: ./artifacts
-
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          artifacts/windows-installer/*.exe
-          artifacts/linux-package/*.deb
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "📁 Checking deployed files:"
+          ls -la /home/ubuntu/fim-distribution/public/downloads/
+          echo "Deployment complete!"
