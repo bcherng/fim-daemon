@@ -1,6 +1,6 @@
 [Setup]
 AppName=File Integrity Monitor Daemon
-AppVersion=1.0
+AppVersion={#Version}
 AppPublisher=Brian Cherng (bcherng@github)
 DefaultDirName={commonpf}\FIM-Daemon
 DefaultGroupName=File Integrity Monitor
