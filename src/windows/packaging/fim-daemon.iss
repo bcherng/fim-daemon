@@ -15,8 +15,7 @@ WizardStyle=modern
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; All files are in the same directory as the ISS file
-Source: "fim_daemon_windows.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\fim_daemon_windows.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.ini"; DestDir: "{app}"; Flags: ignoreversion
 Source: "install_dependencies.bat"; DestDir: "{app}"; Flags: ignoreversion
