@@ -35,7 +35,7 @@ jobs:
               & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer_temp.iss"
               Set-Location "$env:GITHUB_WORKSPACE"
               
-              Move-Item "src/windows/packaging/Output/FIM-Daemon-Setup.exe" "src/windows/build/"
+              Move-Item "src/windows/packaging/Output/*.exe" "src/windows/build/"
             file-pattern: "*.exe"
             tag-prefix: fim-windows
           
