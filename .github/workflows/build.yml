@@ -27,6 +27,12 @@ jobs:
               pip install -r src/windows/requirements.txt
             build-script: |
               & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "src/windows/packaging/installer.iss"
+              if (!(Test-Path "src/windows/build")) { 
+                New-Item -ItemType Directory -Path "src/windows/build" 
+              }
+              if (Test-Path "src/windows/packaging/Output/*.exe") {
+                Move-Item "src/windows/packaging/Output/*.exe" "src/windows/build/"
+              }
             file-pattern: "*.exe"
             tag-prefix: fim-windows
           
