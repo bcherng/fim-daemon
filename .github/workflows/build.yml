@@ -11,7 +11,7 @@ on:
 
 permissions:
   contents: write
-
+  
 jobs:
   build:
     name: Build FIM Daemon (${{ matrix.platform }})
@@ -23,9 +23,9 @@ jobs:
             runs-on: windows-latest
             source-path: src/windows
             setup-cmd: |
+              choco install innosetup -y --no-progress
               pip install -r src/windows/requirements.txt
             build-script: |
-              choco install innosetup -y --no-progress
               & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "src/windows/packaging/installer.iss"
             file-pattern: "*.exe"
             tag-prefix: fim-windows
@@ -33,10 +33,10 @@ jobs:
           - platform: linux
             runs-on: ubuntu-latest
             source-path: src/linux
-            setup-cmd: echo "No additional setup needed for Linux"
-            build-script: |
+            setup-cmd: |
               sudo apt-get update
               sudo apt-get install -y dpkg-dev debhelper fakeroot
+            build-script: |
               cd src/linux
               chmod +x packaging/build-deb.sh
               ./packaging/build-deb.sh
@@ -50,6 +50,7 @@ jobs:
 
       - name: Get version
         id: version
+        shell: bash
         run: |
           if [ "${{ matrix.platform }}" = "windows" ]; then
             echo "version=$(cat src/windows/version.txt)" >> $GITHUB_OUTPUT
@@ -59,6 +60,7 @@ jobs:
 
       - name: Check if release already exists
         id: check-release
+        shell: bash
         run: |
           tag="${{ matrix.tag-prefix }}-v${{ steps.version.outputs.version }}"
           if git rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
@@ -69,7 +71,7 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Python
+      - name: Set up Python (Windows only)
         if: steps.check-release.outputs.exists == 'false' && matrix.platform == 'windows'
         uses: actions/setup-python@v5
         with:
