@@ -26,7 +26,7 @@ jobs:
               choco install innosetup -y --no-progress
               pip install -r src/windows/requirements.txt
             build-script: |
-              & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "src/windows/installer.iss"
+              & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "src/windows/fim-daemon.iss"
             file-pattern: "*.exe"
             tag-prefix: fim-windows
           
