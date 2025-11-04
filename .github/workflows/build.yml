@@ -26,7 +26,16 @@ jobs:
               choco install innosetup -y --no-progress
               pip install -r src/windows/requirements.txt
             build-script: |
-              & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "src/windows/packaging/fim-daemon.iss"
+              $version = Get-Content "src/windows/version.txt" -Raw
+              $issContent = Get-Content "src/windows/packaging/installer.iss" -Raw
+              $issContent = $issContent -replace '{#Version}', $version.Trim()
+              $issContent | Out-File "src/windows/packaging/installer_temp.iss" -Encoding utf8
+              
+              Set-Location "src/windows/packaging"
+              & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer_temp.iss"
+              Set-Location "$env:GITHUB_WORKSPACE"
+              
+              Move-Item "src/windows/packaging/Output/FIM-Daemon-Setup.exe" "src/windows/build/"
             file-pattern: "*.exe"
             tag-prefix: fim-windows
           
