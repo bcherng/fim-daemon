@@ -84,7 +84,7 @@ jobs:
           (Get-Content $issPath -Raw) -replace '{#Version}', $version | Out-File $issPath -Encoding utf8
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $issPath
           mkdir -Force src/windows/build
-          Move-Item "src/windows/packaging/Output/*.exe" "src/windows/build/FIM-Daemon-v$version.exe"
+          Move-Item "src/windows/packaging/Output/*.exe" "src/windows/build/fim-daemon-v$version.exe"
 
       - name: Upload Windows artifact
         if: matrix.platform == 'windows'
@@ -137,7 +137,7 @@ jobs:
             FIM Daemon v${{ needs.precheck.outputs.version }}
 
             **Included Installers:**
-            - Windows: `FIM-Daemon-v${{ needs.precheck.outputs.version }}.exe`
+            - Windows: `fim-daemon-v${{ needs.precheck.outputs.version }}.exe`
             - Linux: `fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb`
           files: |
             dist/windows-installer/*.exe
