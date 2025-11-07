@@ -57,4 +57,13 @@ echo "Copying packaging files..."
 cp packaging/DEBIAN/* "$PKG_DIR/DEBIAN/"
 cp packaging/etc/systemd/system/fim-daemon.service "$PKG_DIR/etc/systemd/system/"
 
+# Set permissions
+chmod 755 "$PKG_DIR/DEBIAN/postinst" || true
+chmod 755 "$PKG_DIR/DEBIAN/prerm" || true
+chmod 644 "$PKG_DIR/etc/systemd/system/fim-daemon.service"
 
+# Build the DEB package
+OUTPUT_DEB="$BUILD_DIR/${PACKAGE_NAME}_${VERSION}_${ARCHITECTURE}.deb"
+dpkg-deb --build "$PKG_DIR" "$OUTPUT_DEB"
+echo "DEB package built at: $OUTPUT_DEB"
+ls -la "$BUILD_DIR"
