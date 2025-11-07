@@ -31,7 +31,7 @@ jobs:
         run: |
           VERSION=$(cat version.txt | tr -d '\r\n')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "🔍 Detected version: $VERSION"
+          echo "Detected version: $VERSION"
 
       - name: Check if tag already exists
         id: check-tag
@@ -43,7 +43,7 @@ jobs:
           else
             echo "No existing tag found. Proceeding."
             echo "skip=false" >> $GITHUB_OUTPUT
-
+          fi
   build:
     name: Build FIM Daemon (${{ matrix.platform }})
     needs: precheck
