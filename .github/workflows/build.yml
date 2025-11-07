@@ -11,96 +11,113 @@ on:
 
 permissions:
   contents: write
-  
+
 jobs:
-  build:
-    name: Build FIM Daemon (${{ matrix.platform }})
-    runs-on: ${{ matrix.runs-on }}
-    strategy:
-      matrix:
-        include:
-          - platform: windows
-            runs-on: windows-latest
-            source-path: src/windows
-            setup-cmd: |
-              choco install innosetup -y --no-progress
-              pip install -r src/windows/requirements.txt
-            build-script: |
-              $version = Get-Content "src/windows/version.txt" -Raw
-              $issContent = Get-Content "src/windows/packaging/installer.iss" -Raw
-              $issContent = $issContent -replace '{#Version}', $version.Trim()
-              $issContent | Out-File "src/windows/packaging/installer_temp.iss" -Encoding utf8
-              
-              Set-Location "src/windows/packaging"
-              & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer_temp.iss"
-              Set-Location "$env:GITHUB_WORKSPACE"
-              
-              Move-Item "src/windows/packaging/Output/*.exe" "src/windows/build/"
-            file-pattern: "*.exe"
-            tag-prefix: fim-windows
-          
-          - platform: linux
-            runs-on: ubuntu-latest
-            source-path: src/linux
-            setup-cmd: |
-              sudo apt-get update
-              sudo apt-get install -y dpkg-dev debhelper fakeroot
-            build-script: |
-              cd src/linux
-              chmod +x packaging/build-deb.sh
-              ./packaging/build-deb.sh
-            file-pattern: "*.deb"
-            tag-prefix: fim-linux
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read unified version
+        id: read-version
+        run: |
+          if [ -f version.txt ]; then
+            ver=$(cat version.txt)
+          else
+            echo "ERROR: No version file found!" && exit 1
+          fi
+          echo "version=$ver" >> $GITHUB_OUTPUT
+
+      - name: Show version
+        run: echo "Building unified version ${{ steps.read-version.outputs.version }}"
+
+  build-windows:
+    name: Build Windows Installer
+    needs: get-version
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get version
-        id: version
-        shell: bash
-        run: |
-          if [ "${{ matrix.platform }}" = "windows" ]; then
-            echo "version=$(cat src/windows/version.txt)" >> $GITHUB_OUTPUT
-          else
-            echo "version=$(cat src/linux/version.txt)" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check if release already exists
-        id: check-release
-        shell: bash
-        run: |
-          tag="${{ matrix.tag-prefix }}-v${{ steps.version.outputs.version }}"
-          if git rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Release tag $tag already exists. Skipping build."
-            exit 0
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Set up Python (Windows only)
-        if: steps.check-release.outputs.exists == 'false' && matrix.platform == 'windows'
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Run platform-specific setup
-        if: steps.check-release.outputs.exists == 'false'
-        run: ${{ matrix.setup-cmd }}
+      - name: Install dependencies
+        run: |
+          choco install innosetup -y --no-progress
+          pip install -r src/windows/requirements.txt
 
-      - name: Build package
-        if: steps.check-release.outputs.exists == 'false'
-        run: ${{ matrix.build-script }}
+      - name: Compile Installer
+        run: |
+          $version = "${{ needs.get-version.outputs.version }}"
+          $issContent = Get-Content "src/windows/packaging/installer.iss" -Raw
+          $issContent = $issContent -replace '{#Version}', $version.Trim()
+          $issContent | Out-File "src/windows/packaging/installer_temp.iss" -Encoding utf8
+          
+          Set-Location "src/windows/packaging"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer_temp.iss"
+          Set-Location "$env:GITHUB_WORKSPACE"
+          
+          if (!(Test-Path "src/windows/build")) { New-Item -ItemType Directory -Path "src/windows/build" }
+          Move-Item "src/windows/packaging/Output/*.exe" "src/windows/build/"
 
-      - name: Upload to Release
-        if: steps.check-release.outputs.exists == 'false'
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fim-windows
+          path: src/windows/build/*.exe
+
+  build-linux:
+    name: Build Linux Package
+    needs: get-version
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev debhelper fakeroot
+
+      - name: Build DEB package
+        run: |
+          cd src/linux
+          chmod +x packaging/build-deb.sh
+          ./packaging/build-deb.sh
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fim-linux
+          path: src/linux/build/*.deb
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-linux, get-version]
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Display artifacts
+        run: ls -R dist
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ matrix.tag-prefix }}-v${{ steps.version.outputs.version }}
-          name: "FIM Daemon for ${{ matrix.platform }} v${{ steps.version.outputs.version }}"
-          body: "FIM Daemon release for ${{ matrix.platform }}"
-          files: ${{ matrix.source-path }}/build/${{ matrix.file-pattern }}
+          tag_name: fim-v${{ needs.get-version.outputs.version }}
+          name: "FIM Daemon v${{ needs.get-version.outputs.version }}"
+          body: |
+            Unified release for Windows and Linux.
+            - Windows Installer (.exe)
+            - Linux Package (.deb)
+          files: |
+            dist/fim-windows/*.exe
+            dist/fim-linux/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
