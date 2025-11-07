@@ -56,3 +56,4 @@ fi
 echo "Copying packaging files..."
 cp packaging/DEBIAN/* "$PKG_DIR/DEBIAN/"
 cp packaging/etc/systemd/system/fim-daemon.service "$PKG_DIR/etc/systemd/system/_
+
