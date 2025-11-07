@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/windows/**'
       - 'src/linux/**'
+      - 'version.txt'
       - '.github/workflows/build.yaml'
   workflow_dispatch:
 
@@ -13,111 +14,133 @@ permissions:
   contents: write
 
 jobs:
-  get-version:
+  precheck:
+    name: Check for existing release
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.read-version.outputs.version }}
+      version: ${{ steps.version.outputs.version }}
+      skip: ${{ steps.check-tag.outputs.skip }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Read unified version
-        id: read-version
+      - name: Read global version
+        id: version
         run: |
-          if [ -f version.txt ]; then
-            ver=$(cat version.txt)
+          VERSION=$(cat version.txt | tr -d '\r\n')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "🔍 Detected version: $VERSION"
+
+      - name: Check if tag already exists
+        id: check-tag
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists. Skipping build."
+            echo "skip=true" >> $GITHUB_OUTPUT
           else
-            echo "ERROR: No version file found!" && exit 1
-          fi
-          echo "version=$ver" >> $GITHUB_OUTPUT
+            echo "No existing tag found. Proceeding."
+            echo "skip=false" >> $GITHUB_OUTPUT
 
-      - name: Show version
-        run: echo "Building unified version ${{ steps.read-version.outputs.version }}"
+  build:
+    name: Build FIM Daemon (${{ matrix.platform }})
+    needs: precheck
+    if: needs.precheck.outputs.skip == 'false'
+    strategy:
+      matrix:
+        include:
+          - platform: windows
+            runs-on: windows-latest
+          - platform: linux
+            runs-on: ubuntu-latest
 
-  build-windows:
-    name: Build Windows Installer
-    needs: get-version
-    runs-on: windows-latest
+    runs-on: ${{ matrix.runs-on }}
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+        with:
+          fetch-depth: 0
+
+      - name: Use version from precheck
+        id: version
+        run: echo "version=${{ needs.precheck.outputs.version }}" >> $GITHUB_OUTPUT
+
+      - name: Set up Windows Build
+        if: matrix.platform == 'windows'
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Build Windows Installer
+        if: matrix.platform == 'windows'
+        shell: pwsh
         run: |
           choco install innosetup -y --no-progress
           pip install -r src/windows/requirements.txt
-
-      - name: Compile Installer
-        run: |
-          $version = "${{ needs.get-version.outputs.version }}"
-          $issContent = Get-Content "src/windows/packaging/installer.iss" -Raw
-          $issContent = $issContent -replace '{#Version}', $version.Trim()
-          $issContent | Out-File "src/windows/packaging/installer_temp.iss" -Encoding utf8
-          
-          Set-Location "src/windows/packaging"
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer_temp.iss"
-          Set-Location "$env:GITHUB_WORKSPACE"
-          
-          if (!(Test-Path "src/windows/build")) { New-Item -ItemType Directory -Path "src/windows/build" }
-          Move-Item "src/windows/packaging/Output/*.exe" "src/windows/build/"
+          $version = '${{ needs.precheck.outputs.version }}'
+          $issPath = "src/windows/packaging/installer.iss"
+          (Get-Content $issPath -Raw) -replace '{#Version}', $version | Out-File $issPath -Encoding utf8
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $issPath
+          mkdir -Force src/windows/build
+          Move-Item "src/windows/packaging/Output/*.exe" "src/windows/build/FIM-Daemon-v$version.exe"
 
       - name: Upload Windows artifact
+        if: matrix.platform == 'windows'
         uses: actions/upload-artifact@v4
         with:
-          name: fim-windows
-          path: src/windows/build/*.exe
+          name: windows-installer
+          path: src/windows/build/FIM-Daemon-v${{ needs.precheck.outputs.version }}.exe
 
-  build-linux:
-    name: Build Linux Package
-    needs: get-version
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install build tools
+      - name: Build Linux Package
+        if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y dpkg-dev debhelper fakeroot
-
-      - name: Build DEB package
-        run: |
           cd src/linux
           chmod +x packaging/build-deb.sh
-          ./packaging/build-deb.sh
+          ./packaging/build-deb.sh "${{ needs.precheck.outputs.version }}"
+          mkdir -p build
+          mv build/*.deb build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
 
       - name: Upload Linux artifact
+        if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: fim-linux
-          path: src/linux/build/*.deb
+          name: linux-package
+          path: src/linux/build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
 
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-windows, build-linux, get-version]
+    needs: [precheck, build]
+    if: needs.precheck.outputs.skip == 'false'
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          path: dist
+          path: dist/
 
-      - name: Display artifacts
-        run: ls -R dist
+      - name: List build artifacts
+        run: ls -R dist/
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: fim-v${{ needs.get-version.outputs.version }}
-          name: "FIM Daemon v${{ needs.get-version.outputs.version }}"
+          tag_name: v${{ needs.precheck.outputs.version }}
+          name: "FIM Daemon v${{ needs.precheck.outputs.version }}"
           body: |
-            Unified release for Windows and Linux.
-            - Windows Installer (.exe)
-            - Linux Package (.deb)
+            FIM Daemon v${{ needs.precheck.outputs.version }}
+
+            **Included Installers:**
+            - Windows: `FIM-Daemon-v${{ needs.precheck.outputs.version }}.exe`
+            - Linux: `fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb`
           files: |
-            dist/fim-windows/*.exe
-            dist/fim-linux/*.deb
+            dist/windows-installer/*.exe
+            dist/linux-package/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
