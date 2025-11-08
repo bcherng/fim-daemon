@@ -31,4 +31,4 @@ By combining real-time monitoring, encrypted communication, and authenticated ac
 
 
 ## Usage
-The daemon will register as a persistent service and monitor the selected directory in real-time and upload hash and timestamp upon file change detection.
+The daemon will register as a persistent service and monitor the selected directory in real-time and upload hash and timestamp upon file change detection. Administrators can then log-in via https://fim-distribution.vercel.app/ to access and review logs.
