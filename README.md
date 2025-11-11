@@ -1,6 +1,6 @@
 # FIM-Daemon
 
-Deamon-component of the FIM system. Persistent real-time monitoring daemons for Windows and Linux.
+Daemon-component of the FIM system. Persistent real-time monitoring daemons for Windows and Linux.
 
 ## About The Project
 
