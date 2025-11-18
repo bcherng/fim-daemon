@@ -4,7 +4,6 @@ import os
 import platform
 import subprocess
 
-# Add core module to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'core'))
 
 from fim import FIMConfig, FIMDaemon

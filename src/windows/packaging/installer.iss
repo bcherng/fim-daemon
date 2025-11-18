@@ -16,7 +16,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "..\fim_daemon_windows.py"; DestDir: "{app}"; Flags: ignoreversion
-Source: "nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "nssm\win64\nssm.exe"; DestDir: "{app\bin}"; Flags: ignoreversion
 Source: "config.ini"; DestDir: "{app}"; Flags: ignoreversion
 Source: "install_dependencies.bat"; DestDir: "{app}"; Flags: ignoreversion
 

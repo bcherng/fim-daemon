@@ -3,7 +3,6 @@ import sys
 import os
 import signal
 
-# Add core module to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'core'))
 
 from fim import FIMConfig, FIMDaemon
