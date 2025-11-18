@@ -5,6 +5,7 @@
 # Determine directory of EXE/script
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $targetDir = "C:\Program Files\FIM-Daemon"
+$serviceName = "FIMDaemon"
 
 # Create target directory
 if (-not (Test-Path $targetDir)) {
@@ -12,46 +13,66 @@ if (-not (Test-Path $targetDir)) {
     Write-Host "Created directory: $targetDir"
 }
 
-# Copy bundled Python files
-$filesToCopy = @("fim_daemon.py","fim_service.py","requirements.txt")
-foreach ($file in $filesToCopy) {
-    $src = Join-Path $scriptDir $file
-    $dst = Join-Path $targetDir $file
-    if (Test-Path $src) {
-        Copy-Item $src $dst -Force
-        Write-Host "Copied $file to $targetDir"
-    } else {
-        Write-Warning "File missing: $file"
-    }
-}
+# Copy the main executable (already installed by Inno Setup)
+$exeName = "fim-daemon.exe"  # Update this to your actual executable name
+$mainExe = Join-Path $targetDir $exeName
 
-# Check if Python 3.12 is installed
-$pythonPath = (Get-Command python -ErrorAction SilentlyContinue).Source
-if (-not $pythonPath) {
-    Write-Error "Python 3.12+ not found. Please install Python first."
+if (-not (Test-Path $mainExe)) {
+    Write-Error "Main executable not found: $mainExe"
+    Write-Host "Available files in target directory:"
+    Get-ChildItem $targetDir | ForEach-Object { Write-Host "  - $($_.Name)" }
     exit 1
 }
 
-# Install Python dependencies
-Write-Host "Installing Python dependencies..."
-pip install --upgrade pip
-pip install -r (Join-Path $targetDir "requirements.txt")
+# Use NSSM to create the Windows service
+$nssmExe = Join-Path $targetDir "bin\nssm.exe"
 
-# Create a Windows service for the daemon
-$serviceName = "FIMDaemon"
-$exePath = "python"
-$args = "`"$targetDir\fim_service.py`""
+if (-not (Test-Path $nssmExe)) {
+    Write-Error "NSSM not found at: $nssmExe"
+    exit 1
+}
 
 # Check if service already exists
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-    Write-Host "Service '$serviceName' already exists. Restarting..."
-    Restart-Service $serviceName
-} else {
-    New-Service -Name $serviceName -BinaryPathName "$exePath $args" `
-        -DisplayName "File Integrity Monitoring Daemon" -Description "Monitors file integrity and reports to server" `
-        -StartupType Automatic
+    Write-Host "Service '$serviceName' already exists. Stopping and reconfiguring..."
+    Stop-Service $serviceName -Force
+    & $nssmExe remove $serviceName confirm
+    Start-Sleep -Seconds 2
+}
+
+# Install service using NSSM
+Write-Host "Installing Windows service '$serviceName'..."
+$serviceResult = & $nssmExe install $serviceName $mainExe
+
+if ($LASTEXITCODE -eq 0) {
+    # Configure service properties
+    & $nssmExe set $serviceName DisplayName "File Integrity Monitoring Daemon"
+    & $nssmExe set $serviceName Description "Monitors file integrity and reports changes to central server"
+    & $nssmExe set $serviceName Start SERVICE_AUTO_START
+    & $nssmExe set $serviceName AppStdout (Join-Path $targetDir "service.log")
+    & $nssmExe set $serviceName AppStderr (Join-Path $targetDir "service-error.log")
+    
+    Write-Host "Service configured successfully"
+    
+    # Start the service
+    Write-Host "Starting service '$serviceName'..."
     Start-Service $serviceName
-    Write-Host "Service '$serviceName' installed and started."
+    
+    # Check if service started successfully
+    Start-Sleep -Seconds 3
+    $serviceStatus = Get-Service -Name $serviceName
+    if ($serviceStatus.Status -eq 'Running') {
+        Write-Host "Service started successfully!"
+    } else {
+        Write-Warning "Service installed but not running. Current status: $($serviceStatus.Status)"
+    }
+} else {
+    Write-Error "Failed to install service. NSSM exit code: $LASTEXITCODE"
+    Write-Host "NSSM output: $serviceResult"
+    exit 1
 }
 
 Write-Host "Installation complete!"
+Write-Host "Service Name: $serviceName"
+Write-Host "Installation Directory: $targetDir"
+Write-Host "Log files: $targetDir\service.log"
