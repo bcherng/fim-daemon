@@ -13,9 +13,9 @@ if (-not (Test-Path $targetDir)) {
     Write-Host "Created directory: $targetDir"
 }
 
-# Copy the main executable (already installed by Inno Setup)
-$exeName = "fim-daemon.exe"  # Update this to your actual executable name
-$mainExe = Join-Path $targetDir $exeName
+# Use NSSM to create the Windows service
+$nssmExe = Join-Path $targetDir "bin\nssm.exe"
+$mainExe = Join-Path $targetDir "fim-daemon.exe"
 
 if (-not (Test-Path $mainExe)) {
     Write-Error "Main executable not found: $mainExe"
@@ -23,9 +23,6 @@ if (-not (Test-Path $mainExe)) {
     Get-ChildItem $targetDir | ForEach-Object { Write-Host "  - $($_.Name)" }
     exit 1
 }
-
-# Use NSSM to create the Windows service
-$nssmExe = Join-Path $targetDir "bin\nssm.exe"
 
 if (-not (Test-Path $nssmExe)) {
     Write-Error "NSSM not found at: $nssmExe"
