@@ -10,28 +10,23 @@ Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=admin
 WizardStyle=modern
-AlwaysRestart=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[InstallDelete]
+; Delete any existing files before installation
+Type: filesandordirs; Name: "{app}"
+
 [Files]
-; Use "ignoreversion dontcopy" to force file copy regardless of existing files
-Source: "dist\fim-daemon.exe"; DestDir: "{app}"; Flags: ignoreversion dontcopy
-Source: "nssm.exe"; DestDir: "{app}"; Flags: ignoreversion dontcopy
-Source: "install.ps1"; DestDir: "{app}"; Flags: ignoreversion dontcopy
-Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion dontcopy
+; Force overwrite all files
+Source: "dist\fim-daemon.exe"; DestDir: "{app}"; Flags: ignoreversion overwritereadonly uninsremovereadonly
+Source: "nssm.exe"; DestDir: "{app}"; Flags: ignoreversion overwritereadonly uninsremovereadonly
+Source: "install.ps1"; DestDir: "{app}"; Flags: ignoreversion overwritereadonly uninsremovereadonly
+Source: "uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion overwritereadonly uninsremovereadonly
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\install.ps1"""; Flags: runhidden waituntilterminated; StatusMsg: "Installing FIM Daemon service..."
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "UninstallService"
-
-[Code]
-function InitializeSetup(): Boolean;
-begin
-  // Force remove any existing installation directory
-  DelTree(ExpandConstant('{app}'), True, True, True);
-  Result := True;
-end;
