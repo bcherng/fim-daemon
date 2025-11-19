@@ -2,25 +2,30 @@
 # install.ps1 - FIM Daemon Installer
 # =============================
 
-# Determine directory of EXE/script
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $targetDir = "C:\Program Files\FIM-Daemon"
 $serviceName = "FIMDaemon"
 
-# Create target directory
-if (-not (Test-Path $targetDir)) {
-    New-Item -ItemType Directory -Path $targetDir | Out-Null
-    Write-Host "Created directory: $targetDir"
+Write-Host "Starting FIM Daemon installation..."
+Write-Host "Installation directory: $targetDir"
+
+# Check what files were actually installed
+Write-Host "Files found in installation directory:"
+if (Test-Path $targetDir) {
+    Get-ChildItem $targetDir | ForEach-Object { Write-Host "  - $($_.Name)" }
+} else {
+    Write-Error "Installation directory does not exist: $targetDir"
+    exit 1
 }
 
-# Paths to NSSM and main EXE
-$nssmExe = Join-Path $targetDir "bin\nssm.exe"
+$nssmExe = Join-Path $targetDir "nssm.exe"
 $mainExe = Join-Path $targetDir "fim-daemon.exe"
+
+Write-Host "Looking for NSSM at: $nssmExe"
+Write-Host "Looking for main executable at: $mainExe"
 
 # Validate files exist
 if (-not (Test-Path $mainExe)) {
     Write-Error "Main executable not found: $mainExe"
-    Get-ChildItem $targetDir | ForEach-Object { Write-Host "  - $($_.Name)" }
     exit 1
 }
 
@@ -28,6 +33,8 @@ if (-not (Test-Path $nssmExe)) {
     Write-Error "NSSM not found at: $nssmExe"
     exit 1
 }
+
+Write-Host "All required files found. Proceeding with service installation..."
 
 # Remove existing service if present
 $existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
@@ -40,17 +47,13 @@ if ($existingService) {
 
 # Install service using NSSM
 Write-Host "Installing Windows service '$serviceName'..."
-$installResult = & $nssmExe install $serviceName $mainExe ""
+$installResult = & $nssmExe install $serviceName $mainExe
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "NSSM failed to install service. Exit code: $LASTEXITCODE"
     Write-Host "NSSM output: $installResult"
     exit 1
 }
-
-# Explicitly force NSSM to point to the correct EXE and clear arguments
-& $nssmExe set $serviceName Application $mainExe
-& $nssmExe set $serviceName AppParameters ""
 
 # Configure service properties
 & $nssmExe set $serviceName DisplayName "File Integrity Monitoring Daemon"
