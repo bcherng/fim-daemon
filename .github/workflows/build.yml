@@ -44,6 +44,7 @@ jobs:
             echo "No existing tag found. Proceeding."
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
+
   build:
     name: Build FIM Daemon (${{ matrix.platform }})
     needs: precheck
@@ -73,16 +74,46 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install Python Dependencies
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          pip install -r src/windows/requirements.txt
+          pip install pyinstaller
+
+      - name: Build Windows Executable
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          # Build the main executable in the correct location
+          cd src/windows/packaging
+          pyinstaller --onefile --name fim-daemon ../fim_daemon_windows.py
+          
+          # Verify the executable was created in the right place
+          if (Test-Path "dist/fim-daemon.exe") {
+            Write-Host "Main executable built: dist/fim-daemon.exe"
+            Get-Item "dist/fim-daemon.exe"
+          } else {
+            Write-Error "Executable build failed"
+            Get-ChildItem -Recurse -Filter "*.exe" | ForEach-Object { Write-Host "Found: $($_.FullName)" }
+            exit 1
+          }
+
       - name: Build Windows Installer
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
-          pip install -r src/windows/requirements.txt
           $version = '${{ needs.precheck.outputs.version }}'
           $issPath = "src/windows/packaging/installer.iss"
+          
+          # Update version in ISS file
           (Get-Content $issPath -Raw) -replace '{#Version}', $version | Out-File $issPath -Encoding utf8
+          
+          # Build the installer
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $issPath
+          
+          # Move the final installer
           mkdir -Force src/windows/build
           Move-Item "src/windows/packaging/Output/*.exe" "src/windows/build/fim-daemon-v$version.exe"
 
@@ -91,7 +122,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: src/windows/build/FIM-Daemon-v${{ needs.precheck.outputs.version }}.exe
+          path: src/windows/build/fim-daemon-v${{ needs.precheck.outputs.version }}.exe
 
       - name: Build Linux Package
         if: matrix.platform == 'linux'
