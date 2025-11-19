@@ -85,13 +85,34 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          # Build using the spec file
-          cd src/windows
-          pyinstaller fim-daemon.spec
+          Write-Host "=== BUILDING EXECUTABLE ==="
           
-          # Copy to packaging directory
-          New-Item -ItemType Directory -Force -Path "packaging/dist"
-          Copy-Item "dist/fim-daemon.exe" "packaging/dist/fim-daemon.exe" -Force
+          # Build from project root to handle relative paths correctly
+          pyinstaller --onefile `
+            --name fim-daemon `
+            --add-data "src/core/fim.py;." `
+            --add-data "src/core/utils.py;." `
+            --add-data "src/core/merkle.py;." `
+            --hidden-import=src.core.fim `
+            --hidden-import=src.core.utils `
+            --hidden-import=src.core.merkle `
+            "src/windows/fim_daemon_windows.py"
+          
+          Write-Host "=== VERIFYING BUILD ==="
+          if (Test-Path "dist/fim-daemon.exe") {
+            Write-Host "Executable created: dist/fim-daemon.exe"
+            Write-Host "Size: $((Get-Item 'dist/fim-daemon.exe').Length) bytes"
+            
+            # Copy to packaging directory
+            New-Item -ItemType Directory -Force -Path "src/windows/packaging/dist"
+            Copy-Item "dist/fim-daemon.exe" "src/windows/packaging/dist/fim-daemon.exe" -Force
+            Write-Host "Copied to packaging directory"
+          } else {
+            Write-Error "Executable not created!"
+            Write-Host "Files in dist directory:"
+            Get-ChildItem "dist" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  - $($_.Name)" }
+            exit 1
+          }
           
       - name: Debug File Structure
         if: matrix.platform == 'windows'
