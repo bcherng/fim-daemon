@@ -103,7 +103,31 @@ jobs:
             Get-ChildItem -Recurse -Filter "*.exe" | ForEach-Object { Write-Host "Found: $($_.FullName)" }
             exit 1
           }
-
+      - name: Debug File Structure
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          Write-Host "=== CURRENT FILE STRUCTURE ==="
+          cd src/windows/packaging
+          Write-Host "Current directory: $(Get-Location)"
+          Write-Host "`nAll files (recursive):"
+          Get-ChildItem -Recurse | Format-Table FullName, Length -AutoSize
+          
+          Write-Host "`nChecking specific paths:"
+          $paths = @(
+            "dist/fim-daemon.exe",
+            "nssm.exe", 
+            "install.ps1",
+            "uninstall.ps1"
+          )
+          foreach ($path in $paths) {
+            $fullPath = Resolve-Path $path -ErrorAction SilentlyContinue
+            if ($fullPath) {
+              Write-Host "$path -> $fullPath"
+            } else {
+              Write-Host "$path - NOT FOUND"
+            }
+          }
       - name: Build Windows Installer
         if: matrix.platform == 'windows'
         shell: pwsh
