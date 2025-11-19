@@ -80,19 +80,29 @@ jobs:
         run: |
           pip install -r src/windows/requirements.txt
           pip install pyinstaller
+      - name: Install Python Dependencies
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          # Install all dependencies from requirements
+          pip install -r src/windows/requirements.txt
+          pip install pyinstaller
 
       - name: Build Windows Executable
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          Write-Host "=== BUILDING EXECUTABLE ==="
+          Write-Host "=== BUILDING EXECUTABLE WITH DEPENDENCIES ==="
           
-          # Build from project root to handle relative paths correctly
+          # Build from project root with all hidden imports
           pyinstaller --onefile `
             --name fim-daemon `
             --add-data "src/core/fim.py;." `
             --add-data "src/core/utils.py;." `
             --add-data "src/core/merkle.py;." `
+            --hidden-import=requests `
+            --hidden-import=watchdog `
+            --hidden-import=pywin32 `
             --hidden-import=src.core.fim `
             --hidden-import=src.core.utils `
             --hidden-import=src.core.merkle `
@@ -109,10 +119,8 @@ jobs:
             Write-Host "Copied to packaging directory"
           } else {
             Write-Error "Executable not created!"
-            Write-Host "Files in dist directory:"
-            Get-ChildItem "dist" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  - $($_.Name)" }
             exit 1
-          }
+          }          
           
       - name: Debug File Structure
         if: matrix.platform == 'windows'
