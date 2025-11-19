@@ -85,16 +85,21 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          # Build the main executable in the correct location
-          cd src/windows/packaging
-          pyinstaller --onefile --name fim-daemon ../fim_daemon_windows.py
+          # Build the main executable from the windows directory
+          cd src/windows
+          pyinstaller --onefile --name fim-daemon fim_daemon_windows.py
+          
+          # Create packaging/dist directory if it doesn't exist and copy the executable
+          New-Item -ItemType Directory -Force -Path "packaging/dist"
+          Copy-Item "dist/fim-daemon.exe" "packaging/dist/fim-daemon.exe"
           
           # Verify the executable was created in the right place
-          if (Test-Path "dist/fim-daemon.exe") {
-            Write-Host "Main executable built: dist/fim-daemon.exe"
-            Get-Item "dist/fim-daemon.exe"
+          if (Test-Path "packaging/dist/fim-daemon.exe") {
+            Write-Host "Main executable built and copied to packaging/dist/fim-daemon.exe"
+            Get-Item "packaging/dist/fim-daemon.exe"
           } else {
-            Write-Error "Executable build failed"
+            Write-Error "Executable build/copy failed"
+            Write-Host "Current directory: $(Get-Location)"
             Get-ChildItem -Recurse -Filter "*.exe" | ForEach-Object { Write-Host "Found: $($_.FullName)" }
             exit 1
           }
@@ -103,7 +108,9 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          choco install innosetup -y --no-progress
+          # Install InnoSetup (skip if already installed)
+          choco install innosetup -y --no-progress || echo "InnoSetup installation skipped (already installed)"
+          
           $version = '${{ needs.precheck.outputs.version }}'
           $issPath = "src/windows/packaging/installer.iss"
           
