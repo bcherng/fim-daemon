@@ -18,8 +18,10 @@ class WindowsHardwareIdentifier:
         """Get WMI property using PowerShell"""
         try:
             cmd = f"Get-WmiObject -Class {class_name} | Select-Object -ExpandProperty {property_name}"
+            powershell_path = os.path.join(os.environ.get("WINDIR", r"C:\Windows"),"System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+                        
             result = subprocess.run([
-                "powershell", "-Command", cmd
+                powershell_path, "-Command", cmd
             ], capture_output=True, text=True, timeout=10)
             
             if result.returncode == 0 and result.stdout.strip():
