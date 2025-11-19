@@ -15,13 +15,11 @@ WizardStyle=modern
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; Main executable
-Source: "dist\fim-daemon.exe"; DestDir: "{app}"; Flags: ignoreversion
-; NSSM for service management
-Source: "nssm.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
-; Installation scripts
-Source: "install.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
-Source: "uninstall.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+; Use absolute paths to eliminate path resolution issues
+Source: "D:\a\fim-daemon\fim-daemon\src\windows\packaging\dist\fim-daemon.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\a\fim-daemon\fim-daemon\src\windows\packaging\nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\a\fim-daemon\fim-daemon\src\windows\packaging\install.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\a\fim-daemon\fim-daemon\src\windows\packaging\uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install.ps1"""; Flags: runhidden waituntilterminated; StatusMsg: "Installing FIM Daemon service..."
