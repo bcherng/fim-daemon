@@ -1,6 +1,3 @@
-; =========================================
-; FIM-Daemon Inno Setup Installer
-; =========================================
 [Setup]
 AppName=File Integrity Monitor Daemon
 AppVersion={#Version}
@@ -18,33 +15,16 @@ WizardStyle=modern
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
+; Main executable
 Source: "dist\fim-daemon.exe"; DestDir: "{app}"; Flags: ignoreversion
+; NSSM for service management
 Source: "nssm.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
+; Installation scripts
 Source: "install.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "uninstall.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 
-; We remove [Run] and replace with AfterInstall in [Files] + [Code]
-
-; Run install.ps1 after files are copied
-[Files]
-; Re-add install.ps1 with AfterInstall hook
-Source: "install.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion; AfterInstall: RunInstallScript
+[Run]
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install.ps1"""; Flags: runhidden waituntilterminated; StatusMsg: "Installing FIM Daemon service..."
 
 [UninstallRun]
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\uninstall.ps1"""; Flags: runhidden; RunOnceId: "UninstallService"
-
-[Code]
-procedure RunInstallScript();
-var
-  ResultCode: Integer;
-begin
-  if not Exec('powershell.exe',
-              '-ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\scripts\install.ps1') + '"',
-              ExpandConstant('{app}'),
-              SW_HIDE,
-              ewWaitUntilTerminated,
-              ResultCode) then
-  begin
-    MsgBox('Failed to run install.ps1. Exit code: ' + IntToStr(ResultCode), mbError, MB_OK);
-  end;
-end;
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\uninstall.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "UninstallService"
