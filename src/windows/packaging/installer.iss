@@ -16,9 +16,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "dist\fim-daemon.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "nssm\win64\nssm.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
-Source: "scripts\install.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
-Source: "scripts\uninstall.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "nssm.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
+Source: "install.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "uninstall.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\install.ps1"""; Flags: runhidden; StatusMsg: "Installing FIM Daemon service..."
