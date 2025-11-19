@@ -8,52 +8,71 @@ $serviceName = "FIMDaemon"
 Write-Host "Starting FIM Daemon installation..."
 Write-Host "Installation directory: $targetDir"
 
-# Check what files were actually installed
-Write-Host "Files found in installation directory:"
-if (Test-Path $targetDir) {
-    Get-ChildItem $targetDir | ForEach-Object { Write-Host "  - $($_.Name)" }
-} else {
-    Write-Error "Installation directory does not exist: $targetDir"
-    exit 1
-}
+# Check installed files
+Write-Host "Files in installation directory:"
+Get-ChildItem $targetDir | ForEach-Object { Write-Host "  - $($_.Name)" }
 
 $nssmExe = Join-Path $targetDir "nssm.exe"
 $mainExe = Join-Path $targetDir "fim-daemon.exe"
 
-Write-Host "Looking for NSSM at: $nssmExe"
-Write-Host "Looking for main executable at: $mainExe"
+Write-Host "NSSM path: $nssmExe - Exists: $(Test-Path $nssmExe)"
+Write-Host "Main executable: $mainExe - Exists: $(Test-Path $mainExe)"
 
-# Validate files exist
-if (-not (Test-Path $mainExe)) {
-    Write-Error "Main executable not found: $mainExe"
-    exit 1
-}
-
-if (-not (Test-Path $nssmExe)) {
-    Write-Error "NSSM not found at: $nssmExe"
-    exit 1
-}
-
-Write-Host "All required files found. Proceeding with service installation..."
-
-# Remove existing service if present
-$existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-if ($existingService) {
-    Write-Host "Service '$serviceName' already exists. Stopping and removing..."
-    Stop-Service $serviceName -Force
-    & $nssmExe remove $serviceName confirm
+# FORCE REMOVE existing service (multiple methods)
+Write-Host "Removing any existing service..."
+try {
+    # Method 1: Stop service if running
+    $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+    if ($service) {
+        Write-Host "Stopping existing service..."
+        Stop-Service $serviceName -Force -ErrorAction SilentlyContinue
+    }
+    
+    # Method 2: Remove via NSSM
+    if (Test-Path $nssmExe) {
+        Write-Host "Removing service via NSSM..."
+        & $nssmExe remove $serviceName confirm
+        Start-Sleep -Seconds 2
+    }
+    
+    # Method 3: Remove via sc.exe
+    Write-Host "Removing service via sc.exe..."
+    & sc.exe delete $serviceName 2>&1 | Out-Null
     Start-Sleep -Seconds 2
+    
+    # Method 4: Remove via PowerShell
+    Remove-Service -Name $serviceName -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+} catch {
+    Write-Host "Service removal encountered issues (may not exist): $_"
 }
 
-# Install service using NSSM
-Write-Host "Installing Windows service '$serviceName'..."
+# Wait to ensure service is fully removed
+Start-Sleep -Seconds 3
+
+# Verify service is gone
+$remainingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if ($remainingService) {
+    Write-Error "Service still exists after removal attempts. Please reboot and try again."
+    exit 1
+}
+
+Write-Host "Service successfully removed. Installing fresh..."
+
+# Install service using NSSM with the COMPILED executable
+Write-Host "Installing service '$serviceName' with compiled executable..."
 $installResult = & $nssmExe install $serviceName $mainExe
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "NSSM failed to install service. Exit code: $LASTEXITCODE"
+    Write-Error "Failed to install service. NSSM exit code: $LASTEXITCODE"
     Write-Host "NSSM output: $installResult"
     exit 1
 }
+
+# VERIFY the service points to the correct executable
+Write-Host "Verifying service configuration..."
+$verifyResult = & $nssmExe get $serviceName Application
+Write-Host "Service Application path: $verifyResult"
 
 # Configure service properties
 & $nssmExe set $serviceName DisplayName "File Integrity Monitoring Daemon"
@@ -65,19 +84,25 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Service configured successfully."
 
 # Start the service
-Write-Host "Starting service '$serviceName'..."
-Start-Service $serviceName
-
-# Verify service status
-Start-Sleep -Seconds 3
-$serviceStatus = Get-Service -Name $serviceName
-if ($serviceStatus.Status -eq 'Running') {
-    Write-Host "Service started successfully!"
-} else {
-    Write-Warning "Service installed but not running. Current status: $($serviceStatus.Status)"
+Write-Host "Starting service..."
+try {
+    Start-Service $serviceName
+    Write-Host "Service start command sent."
+    
+    # Wait and check status
+    Start-Sleep -Seconds 5
+    $serviceStatus = Get-Service -Name $serviceName
+    Write-Host "Service status: $($serviceStatus.Status)"
+    
+    if ($serviceStatus.Status -eq 'Running') {
+        Write-Host "✅ Service started successfully!"
+    } else {
+        Write-Warning "Service installed but not running. Status: $($serviceStatus.Status)"
+        Write-Host "Check service-error.log for details"
+    }
+} catch {
+    Write-Error "Failed to start service: $_"
+    Write-Host "Check Windows Event Viewer for detailed error information"
 }
 
 Write-Host "Installation complete!"
-Write-Host "Service Name: $serviceName"
-Write-Host "Installation Directory: $targetDir"
-Write-Host "Log files: $targetDir\service.log"
