@@ -85,24 +85,14 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          # Build the main executable from the windows directory
+          # Build using the spec file
           cd src/windows
-          pyinstaller --onefile --name fim-daemon fim_daemon_windows.py
+          pyinstaller fim-daemon.spec
           
-          # Create packaging/dist directory if it doesn't exist and copy the executable
+          # Copy to packaging directory
           New-Item -ItemType Directory -Force -Path "packaging/dist"
-          Copy-Item "dist/fim-daemon.exe" "packaging/dist/fim-daemon.exe"
+          Copy-Item "dist/fim-daemon.exe" "packaging/dist/fim-daemon.exe" -Force
           
-          # Verify the executable was created in the right place
-          if (Test-Path "packaging/dist/fim-daemon.exe") {
-            Write-Host "Main executable built and copied to packaging/dist/fim-daemon.exe"
-            Get-Item "packaging/dist/fim-daemon.exe"
-          } else {
-            Write-Error "Executable build/copy failed"
-            Write-Host "Current directory: $(Get-Location)"
-            Get-ChildItem -Recurse -Filter "*.exe" | ForEach-Object { Write-Host "Found: $($_.FullName)" }
-            exit 1
-          }
       - name: Debug File Structure
         if: matrix.platform == 'windows'
         shell: pwsh
