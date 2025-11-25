@@ -1,11 +1,11 @@
-name: Build and Release FIM Daemon
+name: Build and Release FIM Daemon (Linux)
 
 on:
   push:
     branches: [main]
     paths:
-      - 'src/windows/**'
       - 'src/linux/**'
+      - 'src/core/**'
       - 'version.txt'
       - '.github/workflows/build.yaml'
   workflow_dispatch:
@@ -46,18 +46,10 @@ jobs:
           fi
 
   build:
-    name: Build FIM Daemon (${{ matrix.platform }})
+    name: Build Linux Debian Package
     needs: precheck
     if: needs.precheck.outputs.skip == 'false'
-    strategy:
-      matrix:
-        include:
-          - platform: windows
-            runs-on: windows-latest
-          - platform: linux
-            runs-on: ubuntu-latest
-
-    runs-on: ${{ matrix.runs-on }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -68,120 +60,16 @@ jobs:
         id: version
         run: echo "version=${{ needs.precheck.outputs.version }}" >> $GITHUB_OUTPUT
 
-      - name: Set up Windows Build
-        if: matrix.platform == 'windows'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python Dependencies
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          pip install -r src/windows/requirements.txt
-          pip install pyinstaller
-      - name: Install Python Dependencies
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          # Install all dependencies from requirements
-          pip install -r src/windows/requirements.txt
-          pip install pyinstaller
-
-      - name: Build Windows Executable
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          Write-Host "=== BUILDING EXECUTABLE WITH DEPENDENCIES ==="
-          
-          # Build from project root with all hidden imports
-          pyinstaller --onefile `
-            --name fim-daemon `
-            --add-data "src/core/fim.py;." `
-            --add-data "src/core/utils.py;." `
-            --add-data "src/core/merkle.py;." `
-            --hidden-import=requests `
-            --hidden-import=watchdog `
-            --hidden-import=pywin32 `
-            --hidden-import=src.core.fim `
-            --hidden-import=src.core.utils `
-            --hidden-import=src.core.merkle `
-            "src/windows/fim_daemon_windows.py"
-          
-          Write-Host "=== VERIFYING BUILD ==="
-          if (Test-Path "dist/fim-daemon.exe") {
-            Write-Host "Executable created: dist/fim-daemon.exe"
-            Write-Host "Size: $((Get-Item 'dist/fim-daemon.exe').Length) bytes"
-            
-            # Copy to packaging directory
-            New-Item -ItemType Directory -Force -Path "src/windows/packaging/dist"
-            Copy-Item "dist/fim-daemon.exe" "src/windows/packaging/dist/fim-daemon.exe" -Force
-            Write-Host "Copied to packaging directory"
-          } else {
-            Write-Error "Executable not created!"
-            exit 1
-          }          
-          
-      - name: Debug File Structure
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          Write-Host "=== CURRENT FILE STRUCTURE ==="
-          cd src/windows/packaging
-          Write-Host "Current directory: $(Get-Location)"
-          Write-Host "`nAll files (recursive):"
-          Get-ChildItem -Recurse | Format-Table FullName, Length -AutoSize
-          
-          Write-Host "`nChecking specific paths:"
-          $paths = @(
-            "dist/fim-daemon.exe",
-            "nssm.exe", 
-            "install.ps1",
-            "uninstall.ps1"
-          )
-          foreach ($path in $paths) {
-            $fullPath = Resolve-Path $path -ErrorAction SilentlyContinue
-            if ($fullPath) {
-              Write-Host "$path -> $fullPath"
-            } else {
-              Write-Host "$path - NOT FOUND"
-            }
-          }
-      - name: Build Windows Installer
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          # Install InnoSetup (skip if already installed)
-          choco install innosetup -y --no-progress || echo "InnoSetup installation skipped (already installed)"
-          
-          $version = '${{ needs.precheck.outputs.version }}'
-          $issPath = "src/windows/packaging/installer.iss"
-          
-          # Update version in ISS file
-          (Get-Content $issPath -Raw) -replace '{#Version}', $version | Out-File $issPath -Encoding utf8
-          
-          # Build the installer
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $issPath
-          
-          # Move the final installer
-          mkdir -Force src/windows/build
-          Move-Item "src/windows/packaging/Output/*.exe" "src/windows/build/fim-daemon-v$version.exe"
-
-      - name: Upload Windows artifact
-        if: matrix.platform == 'windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: src/windows/build/fim-daemon-v${{ needs.precheck.outputs.version }}.exe
-
       - name: Build Linux Debian Package
-        if: matrix.platform == 'linux'
         run: |
           echo "=== BUILDING DEBIAN PACKAGE ==="
           
           # Install build dependencies
           sudo apt-get update
           sudo apt-get install -y dpkg-dev debhelper dh-python fakeroot devscripts build-essential
+          
+          # Copy debian directory to root for build (temporary)
+          cp -r src/linux/debian .
           
           # Set version in debian/changelog
           dch -v "${{ needs.precheck.outputs.version }}-1" "Update to version ${{ needs.precheck.outputs.version }}"
@@ -191,19 +79,18 @@ jobs:
           dpkg-buildpackage -us -uc
           
           # Create build directory and move package
-          mkdir -p build
-          mv ../fim-daemon_${{ needs.precheck.outputs.version }}-1_all.deb build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
+          mkdir -p src/linux/build
+          mv ../fim-daemon_${{ needs.precheck.outputs.version }}-1_all.deb src/linux/build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
           
           echo "=== PACKAGE BUILT SUCCESSFULLY ==="
-          ls -la build/
+          ls -la src/linux/build/
 
       - name: Upload Linux artifact
-        if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
           name: linux-package
-          path: build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
-          
+          path: src/linux/build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
+
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
@@ -229,15 +116,14 @@ jobs:
           body: |
             FIM Daemon v${{ needs.precheck.outputs.version }}
 
-            **Included Packages:**
-            - Windows: `fim-daemon-v${{ needs.precheck.outputs.version }}.exe` (Installer)
-            - Linux: `fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb` (Debian package)
+            **Linux Debian Package:**
+            - `fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb`
 
             **Installation:**
-            - **Windows**: Run the installer executable
-            - **Linux**: `sudo dpkg -i fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb`
+            ```bash
+            sudo dpkg -i fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
+            ```
           files: |
-            dist/windows-installer/fim-daemon-v${{ needs.precheck.outputs.version }}.exe
             dist/linux-package/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
