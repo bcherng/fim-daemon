@@ -44,39 +44,19 @@ jobs:
             echo "No existing tag found. Proceeding."
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
-
-  build:
-    name: Build Linux Debian Package
-    needs: precheck
-    if: needs.precheck.outputs.skip == 'false'
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Use version from precheck
-        id: version
-        run: echo "version=${{ needs.precheck.outputs.version }}" >> $GITHUB_OUTPUT
-
       - name: Build Linux Debian Package
         run: |
           echo "=== BUILDING DEBIAN PACKAGE ==="
           
           # Install build dependencies
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev debhelper dh-python fakeroot devscripts build-essential
+          sudo apt-get install -y dpkg-dev debhelper dh-python fakeroot
           
-          # Copy debian directory to root for build (temporary)
+          # Copy debian directory to root for build
           cp -r src/linux/debian .
           
-          # Set version in debian/changelog
-          dch -v "${{ needs.precheck.outputs.version }}-1" "Update to version ${{ needs.precheck.outputs.version }}"
-          dch -r "" --distribution unstable
-          
-          # Build the package
-          dpkg-buildpackage -us -uc
+          # Build without requiring changelog
+          dpkg-buildpackage -us -uc --buildinfo-option=-O
           
           # Create build directory and move package
           mkdir -p src/linux/build
@@ -84,7 +64,7 @@ jobs:
           
           echo "=== PACKAGE BUILT SUCCESSFULLY ==="
           ls -la src/linux/build/
-
+          
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
