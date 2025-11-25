@@ -1,0 +1,13 @@
+#!/usr/bin/make -f
+%:
+	dh $@ --with python3
+
+override_dh_auto_install:
+	# Install main script
+	install -D -m 755 fim-daemon.py $(CURDIR)/debian/fim-daemon/usr/bin/fim-daemon
+	# Install core modules
+	cp -r core $(CURDIR)/debian/fim-daemon/usr/share/fim-daemon/
+	# Install requirements
+	install -D -m 644 requirements.txt $(CURDIR)/debian/fim-daemon/usr/share/fim-daemon/
+	# Install systemd service
+	install -D -m 644 debian/fim-daemon.service $(CURDIR)/debian/fim-daemon/lib/systemd/system/fim-daemon.service

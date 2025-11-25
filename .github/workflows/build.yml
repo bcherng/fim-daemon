@@ -174,24 +174,36 @@ jobs:
           name: windows-installer
           path: src/windows/build/fim-daemon-v${{ needs.precheck.outputs.version }}.exe
 
-      - name: Build Linux Package
+      - name: Build Linux Debian Package
         if: matrix.platform == 'linux'
         run: |
+          echo "=== BUILDING DEBIAN PACKAGE ==="
+          
+          # Install build dependencies
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev debhelper fakeroot
-          cd src/linux
-          chmod +x packaging/build-deb.sh
-          ./packaging/build-deb.sh "${{ needs.precheck.outputs.version }}"
+          sudo apt-get install -y dpkg-dev debhelper dh-python fakeroot devscripts build-essential
+          
+          # Set version in debian/changelog
+          dch -v "${{ needs.precheck.outputs.version }}-1" "Update to version ${{ needs.precheck.outputs.version }}"
+          dch -r "" --distribution unstable
+          
+          # Build the package
+          dpkg-buildpackage -us -uc
+          
+          # Create build directory and move package
           mkdir -p build
-          mv build/*.deb build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
+          mv ../fim-daemon_${{ needs.precheck.outputs.version }}-1_all.deb build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
+          
+          echo "=== PACKAGE BUILT SUCCESSFULLY ==="
+          ls -la build/
 
       - name: Upload Linux artifact
         if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
           name: linux-package
-          path: src/linux/build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
-
+          path: build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
+          
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
@@ -217,11 +229,15 @@ jobs:
           body: |
             FIM Daemon v${{ needs.precheck.outputs.version }}
 
-            **Included Installers:**
-            - Windows: `fim-daemon-v${{ needs.precheck.outputs.version }}.exe`
-            - Linux: `fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb`
+            **Included Packages:**
+            - Windows: `fim-daemon-v${{ needs.precheck.outputs.version }}.exe` (Installer)
+            - Linux: `fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb` (Debian package)
+
+            **Installation:**
+            - **Windows**: Run the installer executable
+            - **Linux**: `sudo dpkg -i fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb`
           files: |
-            dist/windows-installer/*.exe
-            dist/linux-package/*.deb
+            dist/windows-installer/fim-daemon-v${{ needs.precheck.outputs.version }}.exe
+            dist/linux-package/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
