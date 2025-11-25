@@ -66,7 +66,7 @@ jobs:
           
           # Install package tools
           sudo apt-get update
-          sudo apt-get install -y dpkg-deb fakeroot
+          sudo apt-get install -y dpkg fakeroot
           
           # Create package directory structure
           PKG_DIR="fim-daemon_${{ needs.precheck.outputs.version }}_amd64"
