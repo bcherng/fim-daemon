@@ -44,27 +44,70 @@ jobs:
             echo "No existing tag found. Proceeding."
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
+
+  build:
+    name: Build Linux Debian Package
+    needs: precheck
+    if: needs.precheck.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use version from precheck
+        id: version
+        run: echo "version=${{ needs.precheck.outputs.version }}" >> $GITHUB_OUTPUT
+
       - name: Build Linux Debian Package
         run: |
           echo "=== BUILDING DEBIAN PACKAGE ==="
           
-          # Install build dependencies
+          # Install package tools
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev debhelper dh-python fakeroot
+          sudo apt-get install -y dpkg-deb fakeroot
           
-          # Copy debian directory to root for build
-          cp -r src/linux/debian .
+          # Create package directory structure
+          PKG_DIR="fim-daemon_${{ needs.precheck.outputs.version }}_amd64"
+          mkdir -p $PKG_DIR/DEBIAN
+          mkdir -p $PKG_DIR/usr/bin
+          mkdir -p $PKG_DIR/usr/share/fim-daemon/core
+          mkdir -p $PKG_DIR/lib/systemd/system
           
-          # Build without requiring changelog
-          dpkg-buildpackage -us -uc --buildinfo-option=-O
+          # Copy files to package directory
+          cp src/linux/fim_daemon_linux.py $PKG_DIR/usr/bin/fim-daemon
+          cp -r src/core/* $PKG_DIR/usr/share/fim-daemon/core/
+          cp src/linux/requirements.txt $PKG_DIR/usr/share/fim-daemon/
+          cp src/linux/debian/fim-daemon.service $PKG_DIR/lib/systemd/system/
           
-          # Create build directory and move package
+          # Set executable permissions
+          chmod +x $PKG_DIR/usr/bin/fim-daemon
+          
+          # Copy ALL Debian control files from your existing debian directory
+          cp src/linux/debian/control $PKG_DIR/DEBIAN/
+          cp src/linux/debian/postinst $PKG_DIR/DEBIAN/
+          cp src/linux/debian/prerm $PKG_DIR/DEBIAN/
+          cp src/linux/debian/postrm $PKG_DIR/DEBIAN/
+          
+          # Set executable permissions on maintainer scripts
+          chmod +x $PKG_DIR/DEBIAN/postinst
+          chmod +x $PKG_DIR/DEBIAN/prerm
+          chmod +x $PKG_DIR/DEBIAN/postrm
+          
+          # Update version in control file if needed
+          sed -i "s/Version:.*/Version: ${{ needs.precheck.outputs.version }}/" $PKG_DIR/DEBIAN/control
+          
+          # Build the .deb package
+          dpkg-deb --build $PKG_DIR
+          
+          # Move to build directory
           mkdir -p src/linux/build
-          mv ../fim-daemon_${{ needs.precheck.outputs.version }}-1_all.deb src/linux/build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
+          mv $PKG_DIR.deb src/linux/build/fim-daemon-v${{ needs.precheck.outputs.version }}_amd64.deb
           
           echo "=== PACKAGE BUILT SUCCESSFULLY ==="
           ls -la src/linux/build/
-          
+
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
