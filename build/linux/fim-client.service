@@ -1,5 +1,5 @@
 [Unit]
-Description=FIM Client - File Integrity Monitoring
+Description=FIM Client - Cross-platform File Integrity Monitoring
 After=network-online.target
 Wants=network-online.target
 

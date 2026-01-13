@@ -7,7 +7,7 @@
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.
-AppId={FIM-CLIENT-A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
+AppId={FIM-CLIENT-99E7-4562-AB89-1234567890AB}
 AppName={#MyAppName}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}

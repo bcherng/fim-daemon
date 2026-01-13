@@ -148,16 +148,18 @@ class FIMEventHandler:
         except:
             return False
     
-    def detect_file_change(self, file_path, is_new=False):
+    def detect_file_change(self, file_path, is_new=False, is_deleted=False):
         """Detect and queue file change"""
         self.ignore_events = True
         time.sleep(0.05)  # debounce
         
-        h = sha256_file(file_path)
-        if not h:
-            self.config.logger.error(f"FAILED to hash: {file_path}")
-            self.ignore_events = False
-            return
+        h = None
+        if not is_deleted:
+            h = sha256_file(file_path)
+            if not h:
+                self.config.logger.error(f"FAILED to hash: {file_path}")
+                self.ignore_events = False
+                return
         
         # Find or add file
         file_index = -1
@@ -168,7 +170,14 @@ class FIMEventHandler:
                 old_hash = file_hash
                 break
         
-        if file_index >= 0:
+        if is_deleted:
+            if file_index >= 0:
+                self.files.pop(file_index)
+            else:
+                # File not tracked, ignore
+                self.ignore_events = False
+                return
+        elif file_index >= 0:
             # Modified
             if old_hash == h:
                 self.ignore_events = False
@@ -188,10 +197,10 @@ class FIMEventHandler:
         event_data = {
             'id': f"{self.config.host_id}-{self.event_counter}-{int(time.time()*1000)}",
             'client_id': self.config.host_id,
-            'event_type': 'modified' if file_index >= 0 else 'created',
+            'event_type': 'deleted' if is_deleted else ('modified' if file_index >= 0 else 'created'),
             'file_path': file_path,
             'old_hash': old_hash.hex() if old_hash else None,
-            'new_hash': h.hex(),
+            'new_hash': h.hex() if h else None,
             'root_hash': path_info['root_hash'].hex() if path_info else None,
             'merkle_proof': {
                 'path': [p.hex() for p in path_info['path']] if path_info else [],

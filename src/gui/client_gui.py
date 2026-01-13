@@ -20,7 +20,7 @@ class FIMClientGUI:
         self.connection_mgr = connection_mgr
         self.admin_verifier = admin_verifier
         self.queue = queue.Queue()
-        self.daemon_thread = None
+            self.daemon_thread = None
         
         self.root = tk.Tk()
         self.root.title(f"FIM Client - {config.host_id[:16]}")
@@ -140,9 +140,17 @@ class FIMClientGUI:
         # Restart monitoring if already running
         if self.daemon_thread and self.daemon_thread.is_alive():
             self.add_log(datetime.now().isoformat(), "Restarting monitoring...", "warning")
-            # TODO: Signal daemon to restart
+            self.stop_monitoring()
+            self.root.after(1000, self.start_monitoring) 
         else:
             self.start_monitoring()
+
+    def stop_monitoring(self):
+        """Signal daemon to stop"""
+        if self.daemon_thread and self.daemon_thread.is_alive():
+             if hasattr(self, 'stop_event'):
+                 self.stop_event.set()
+                 self.daemon_thread.join(timeout=2.0)
     
     def change_directory(self):
         """Change monitoring directory with admin verification"""
@@ -225,6 +233,8 @@ class FIMClientGUI:
         
         from daemon.background import run_daemon_background
         
+        self.stop_event = threading.Event()
+        
         self.daemon_thread = threading.Thread(
             target=run_daemon_background,
             args=(
@@ -232,7 +242,8 @@ class FIMClientGUI:
                 self.state, 
                 self.connection_mgr, 
                 self.queue, 
-                watch_dir
+                watch_dir,
+                self.stop_event
             ),
             daemon=True
         )

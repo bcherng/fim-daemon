@@ -1,8 +1,7 @@
 [Desktop Entry]
-Version=1.0
 Type=Application
 Name=FIM Client
-GenericName=File Integrity Monitor
+GenericName=Cross-platform FIM Client
 Comment=Monitor and track file changes with cryptographic verification
 Exec=/usr/bin/fim-client
 Icon=fim-client

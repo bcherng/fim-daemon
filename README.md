@@ -1,6 +1,6 @@
 # FIM-Daemon
 
-Daemon-component of the FIM system. Persistent real-time monitoring daemons for Windows and Linux.
+Cross-platform File Integrity Monitoring (FIM) Client. Real-time monitoring daemons for Windows and Linux.
 
 ## About The Project
 
@@ -22,7 +22,7 @@ By combining real-time monitoring, encrypted communication, and authenticated ac
 
 ## Built With
 
-*   [Language/Framework] Python
+*   Python 3.12
 
 ## Installation
 

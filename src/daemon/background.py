@@ -30,11 +30,10 @@ class WatchdogFileHandler(FileSystemEventHandler):
     
     def on_deleted(self, event):
         if not event.is_directory:
-            # TODO: Handle file deletion
-            pass
+            self.fim_handler.detect_file_change(event.src_path, is_deleted=True)
 
 
-def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir):
+def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_event=None):
     """Run FIM daemon in background thread"""
     gui_queue.put({
         'type': 'log',
@@ -95,6 +94,15 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir):
     
     try:
         while True:
+            if stop_event and stop_event.is_set():
+                gui_queue.put({
+                    'type': 'log',
+                    'timestamp': datetime.now().isoformat(),
+                    'message': 'Stopping daemon...',
+                    'status': 'info'
+                })
+                break
+                
             current_time = time.time()
             
             # Reconnection logic
