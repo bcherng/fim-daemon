@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=FIM Client
+GenericName=File Integrity Monitor
+Comment=Monitor and track file changes with cryptographic verification
+Exec=/usr/bin/fim-client
+Icon=fim-client
+Terminal=false
+Categories=System;Security;Utility;
+Keywords=security;integrity;monitoring;files;
+StartupNotify=true
+StartupWMClass=fim-client
