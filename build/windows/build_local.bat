@@ -28,12 +28,18 @@ echo.
 echo Cleaning previous builds...
 if exist dist rmdir /s /q dist
 if exist "build\windows\Output" rmdir /s /q "build\windows\Output"
+if exist "build\windows\dist" rmdir /s /q "build\windows\dist"
 
 REM Build with PyInstaller
 echo.
 echo Building executable with PyInstaller...
 cd build\windows
 pyinstaller --clean --noconfirm fim_client.spec
+if errorlevel 1 (
+    echo Error: PyInstaller build failed!
+    cd ..\..
+    exit /b 1
+)
 cd ..\..
 
 REM Check Inno Setup
@@ -50,6 +56,10 @@ REM Build installer
 echo.
 echo Building installer with Inno Setup...
 %INNO_SETUP% "build\windows\installer.iss"
+if errorlevel 1 (
+    echo Error: Inno Setup compilation failed!
+    exit /b 1
+)
 
 echo.
 echo ===================================
