@@ -13,7 +13,6 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-AppUpdatesURL={#MyAppURL}
 AppVersion={#MyAppVersion}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}

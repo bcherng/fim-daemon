@@ -1,6 +1,6 @@
-# -------------------------------------------------------------------
-# Windows Build Script
-# build/build_local.bat
+REM -------------------------------------------------------------------
+REM Windows Build Script
+REM build/build_local.bat
 
 @echo off
 REM FIM Client - Windows Build Script

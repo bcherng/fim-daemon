@@ -51,10 +51,14 @@ def increment_version(version, part):
         patch += 1
     return f"{major}.{minor}.{patch}"
 
+
+def print_stderr(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
 def update_version_file(version_file, new_version):
     with open(version_file, 'w') as f:
         f.write(new_version)
-    print(f"Updated {version_file} to {new_version}")
+    print_stderr(f"Updated {version_file} to {new_version}")
 
 def update_fim_client(file_path, new_version):
     if not os.path.exists(file_path):
@@ -84,7 +88,7 @@ def update_fim_client(file_path, new_version):
 
     with open(file_path, 'w') as f:
         f.write(new_content)
-    print(f"Updated {file_path}")
+    print_stderr(f"Updated {file_path}")
 
 def update_installer_iss(file_path, new_version):
     if not os.path.exists(file_path):
@@ -103,7 +107,7 @@ def update_installer_iss(file_path, new_version):
     
     with open(file_path, 'w') as f:
         f.write(new_content)
-    print(f"Updated {file_path}")
+    print_stderr(f"Updated {file_path}")
 
 def main():
     parser = argparse.ArgumentParser(description='Bump version of FIM Client')
@@ -117,7 +121,7 @@ def main():
     installer_file = root_dir / 'build' / 'windows' / 'installer.iss'
 
     if not version_file.exists() and not args.ci:
-        print("Error: VERSION file not found.")
+        print_stderr("Error: VERSION file not found.")
         sys.exit(1)
 
     current_local = get_current_version(version_file)
@@ -137,8 +141,8 @@ def main():
             all_tags = set()
 
         latest_tag = get_latest_git_tag()
-        print(f"Local version: {current_local}")
-        print(f"Latest tag:    {latest_tag}")
+        print_stderr(f"Local version: {current_local}")
+        print_stderr(f"Latest tag:    {latest_tag}")
         
         # Calculate next tag version from latest tag
         next_tag_ver = increment_version(latest_tag, args.part)
@@ -152,10 +156,10 @@ def main():
         # SAFETY: If target_version ALREADY exists as a tag, bump it until it doesn't.
         # This handles cases where Local == LatestTag, preventing collision.
         while target_version in all_tags:
-            print(f"Target {target_version} exists. Bumping...")
+            print_stderr(f"Target {target_version} exists. Bumping...")
             target_version = increment_version(target_version, args.part)
 
-        print(f"CI Target:     {target_version}")
+        print_stderr(f"CI Target:     {target_version}")
     else:
         target_version = increment_version(current_local, args.part)
         print(f"New version:   {target_version}")

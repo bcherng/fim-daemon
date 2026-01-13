@@ -46,7 +46,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ env.VERSION }}
-          title: Release v${{ env.VERSION }}
+          name: Release v${{ env.VERSION }}
           files: |
             build/windows/Output/FIMClient-Setup.exe
         env:
