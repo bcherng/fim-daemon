@@ -30,8 +30,8 @@ pyinstaller --clean --noconfirm fim_client.spec
 cd ../..
 
 # Get version
-if [ -f "../../VERSION" ]; then
-    VERSION=$(cat ../../VERSION)
+if [ -f "VERSION" ]; then
+    VERSION=$(cat VERSION)
 elif [ -n "$1" ]; then
     VERSION="$1"
 else
