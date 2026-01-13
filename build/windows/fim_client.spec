@@ -33,7 +33,7 @@ datas = []
 
 a = Analysis(
     ['../../fim_client.py'],
-    pathex=[],
+    pathex=['../../src'],
     binaries=[],
     datas=datas,
     hiddenimports=hidden_imports,
