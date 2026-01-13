@@ -3,7 +3,7 @@
 #define MyAppPublisher "bcherng"
 #define MyAppURL "https://github.com/bcherng/fim-daemon"
 #define MyAppExeName "FIMClient.exe"
-#define MyAppVersion "0.2.21"
+#define MyAppVersion "0.2.22"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.

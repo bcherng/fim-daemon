@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 
-__version__ = "0.2.21"
+__version__ = "0.2.22"
 
 # Add core to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'core'))

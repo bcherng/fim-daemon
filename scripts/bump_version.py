@@ -124,19 +124,37 @@ def main():
     target_version = current_local
 
     if args.ci:
+        # Fetch all tags first to check for existence
+        try:
+            cmd = ["git", "tag"]
+            all_tags_output = subprocess.check_output(cmd, text=True).strip()
+            all_tags = set()
+            for t in all_tags_output.splitlines():
+                 clean_t = t.strip().lstrip('v')
+                 if re.match(r'^\d+\.\d+\.\d+$', clean_t):
+                     all_tags.add(clean_t)
+        except:
+            all_tags = set()
+
         latest_tag = get_latest_git_tag()
         print(f"Local version: {current_local}")
         print(f"Latest tag:    {latest_tag}")
         
-        # Calculate next tag version
+        # Calculate next tag version from latest tag
         next_tag_ver = increment_version(latest_tag, args.part)
         
-        # Compare
+        # Initial Target: Max(Local, NextFromTag)
         if parse_version(next_tag_ver) > parse_version(current_local):
             target_version = next_tag_ver
         else:
             target_version = current_local
             
+        # SAFETY: If target_version ALREADY exists as a tag, bump it until it doesn't.
+        # This handles cases where Local == LatestTag, preventing collision.
+        while target_version in all_tags:
+            print(f"Target {target_version} exists. Bumping...")
+            target_version = increment_version(target_version, args.part)
+
         print(f"CI Target:     {target_version}")
     else:
         target_version = increment_version(current_local, args.part)
