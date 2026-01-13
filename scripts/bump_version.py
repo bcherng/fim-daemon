@@ -4,13 +4,42 @@ import sys
 import re
 import argparse
 from pathlib import Path
+import subprocess
 
 def get_current_version(version_file):
+    if not os.path.exists(version_file):
+        return "0.0.0"
     with open(version_file, 'r') as f:
         return f.read().strip()
 
+def get_latest_git_tag():
+    try:
+        # Get tags sorted by version descending
+        cmd = ["git", "tag", "--sort=-v:refname"]
+        output = subprocess.check_output(cmd, text=True).strip()
+        if not output:
+             return "0.0.0"
+        
+        for tag in output.splitlines():
+            if re.match(r'^v?\d+\.\d+\.\d+$', tag):
+                return tag.lstrip('v')
+        return "0.0.0"
+    except Exception as e:
+        print(f"Warning: Could not fetch tags: {e}")
+        return "0.0.0"
+
+def parse_version(v):
+    try:
+        return tuple(map(int, v.split('.')))
+    except:
+        return (0, 0, 0)
+
 def increment_version(version, part):
-    major, minor, patch = map(int, version.split('.'))
+    try:
+        major, minor, patch = map(int, version.split('.'))
+    except ValueError:
+        return version
+
     if part == 'major':
         major += 1
         minor = 0
@@ -28,6 +57,8 @@ def update_version_file(version_file, new_version):
     print(f"Updated {version_file} to {new_version}")
 
 def update_fim_client(file_path, new_version):
+    if not os.path.exists(file_path):
+        return
     with open(file_path, 'r') as f:
         content = f.read()
     
@@ -37,10 +68,7 @@ def update_fim_client(file_path, new_version):
         if re.search(pattern, content):
             new_content = re.sub(pattern, f'__version__ = "{new_version}"', content)
         else:
-             # Just append if it looks weird but exists? No, safer to just replace or add.
-             # If strictly regex match fails but string exists, might be different format.
-             # Let's assume standard format or add it.
-             print("Warning: __version__ found but regex failed. Appending.")
+             # Just append if it looks weird but exists?
              new_content = content + f'\n__version__ = "{new_version}"\n'
     else:
         # Insert after docstring or imports
@@ -51,7 +79,6 @@ def update_fim_client(file_path, new_version):
                 insert_idx = i
                 break
         
-        # Insert before imports
         lines.insert(insert_idx, f'__version__ = "{new_version}"')
         new_content = '\n'.join(lines) + '\n'
 
@@ -61,15 +88,10 @@ def update_fim_client(file_path, new_version):
 
 def update_installer_iss(file_path, new_version):
     if not os.path.exists(file_path):
-        print(f"Warning: {file_path} not found. Skipping.")
         return
 
     with open(file_path, 'r') as f:
         content = f.read()
-    
-    # Look for #define MyAppVersion "..."
-    # If not present, we will add it or update AppVersion if hardcoded?
-    # The plan said: Add `#define MyAppVersion` and use it
     
     # Regex for #define MyAppVersion
     pattern = r'(#define MyAppVersion\s+)"[^"]+"'
@@ -77,23 +99,8 @@ def update_installer_iss(file_path, new_version):
     if re.search(pattern, content):
         new_content = re.sub(pattern, f'\\1"{new_version}"', content)
     else:
-        # Add it at the top
         new_content = f'#define MyAppVersion "{new_version}"\n' + content
-        # Also ensure AppVersion uses it if possible, or we might need to manual check
-        # But for now let's just add the define.
-        # Ideally we should also replace `AppVersion=...` with `AppVersion={#MyAppVersion}` if it's not already.
     
-    # Replace AppVersion=... with AppVersion={#MyAppVersion} if it's a hardcoded string?
-    # Or just let the user handle that part? The plan said "Update installer.iss to use version".
-    # Let's try to be smart.
-    
-    # Check if AppVersion is used
-    if 'AppVersion={#MyAppVersion}' not in new_content:
-        # Replace AppVersion=X.Y.Z with AppVersion={#MyAppVersion}
-        # Be careful not to replace random stuff.
-        # For now, let's just make sure the define is there.
-        pass
-
     with open(file_path, 'w') as f:
         f.write(new_content)
     print(f"Updated {file_path}")
@@ -101,6 +108,7 @@ def update_installer_iss(file_path, new_version):
 def main():
     parser = argparse.ArgumentParser(description='Bump version of FIM Client')
     parser.add_argument('part', choices=['major', 'minor', 'patch'], default='patch', nargs='?', help='Part of version to increment')
+    parser.add_argument('--ci', action='store_true', help='Run in CI mode (compare with tags)')
     args = parser.parse_args()
 
     root_dir = Path(__file__).parent.parent
@@ -108,21 +116,41 @@ def main():
     fim_client_file = root_dir / 'fim_client.py'
     installer_file = root_dir / 'build' / 'windows' / 'installer.iss'
 
-    if not version_file.exists():
+    if not version_file.exists() and not args.ci:
         print("Error: VERSION file not found.")
         sys.exit(1)
 
-    current_version = get_current_version(version_file)
-    print(f"Current version: {current_version}")
-    
-    new_version = increment_version(current_version, args.part)
-    print(f"New version:     {new_version}")
+    current_local = get_current_version(version_file)
+    target_version = current_local
 
-    update_version_file(version_file, new_version)
-    update_fim_client(fim_client_file, new_version)
-    update_installer_iss(installer_file, new_version)
+    if args.ci:
+        latest_tag = get_latest_git_tag()
+        print(f"Local version: {current_local}")
+        print(f"Latest tag:    {latest_tag}")
+        
+        # Calculate next tag version
+        next_tag_ver = increment_version(latest_tag, args.part)
+        
+        # Compare
+        if parse_version(next_tag_ver) > parse_version(current_local):
+            target_version = next_tag_ver
+        else:
+            target_version = current_local
+            
+        print(f"CI Target:     {target_version}")
+    else:
+        target_version = increment_version(current_local, args.part)
+        print(f"New version:   {target_version}")
 
-    print("Done!")
+    # Update files
+    # In CI, we update VERSION file too so build scripts can read it, but we don't commit it.
+    update_version_file(version_file, target_version)
+    update_fim_client(fim_client_file, target_version)
+    update_installer_iss(installer_file, target_version)
+
+    # Output for CI
+    if args.ci:
+        print(target_version)
 
 if __name__ == '__main__':
     main()

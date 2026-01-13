@@ -2,287 +2,52 @@ name: Build and Release
 
 on:
   push:
+    branches: [ "main" ]
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version number (e.g., 2.0.0)'
-        required: false
-        default: 'dev'
+
+permissions:
+  contents: write
 
 jobs:
-  build-windows:
-    name: Build Windows Installer
+  build:
     runs-on: windows-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      
+          python-version: '3.12'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-      
-      - name: Create assets directory
+          pip install pyinstaller watchdog requests
+
+      - name: Calculate Version
+        id: version
+        shell: powershell
         run: |
-          if not exist assets mkdir assets
-          echo placeholder > assets\icon.ico
-      
-      - name: Build executable with PyInstaller
+          python scripts/bump_version.py --ci > version.txt
+          $ver = Get-Content version.txt
+          echo "VERSION=$ver" >> $env:GITHUB_ENV
+          echo "Calculated version: $ver"
+
+      - name: Build Windows
         run: |
-          pyinstaller --clean --noconfirm build/windows/fim_client.spec
-      
-      - name: Install Inno Setup
-        run: |
-          choco install innosetup -y
-      
-      - name: Compile .ISS to .EXE Installer
-        uses: minionguyjpro/Inno-Setup-Action@v1.2.2
-        with:
-          path: build/windows/installer.iss
-      
-      - name: Get version
-        id: get_version
-        shell: bash
-        run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="dev-$(git rev-parse --short HEAD)"
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
-      
-      - name: Rename installer
-        run: |
-          $VERSION = "${{ steps.get_version.outputs.VERSION }}"
-          if (Test-Path "build/windows/Output/FIMClient-Setup.exe") {
-            Rename-Item "build/windows/Output/FIMClient-Setup.exe" "FIMClient-$VERSION-Setup.exe"
-          }
-      
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: build/windows/Output/FIMClient-*.exe
-          retention-days: 30
-  
-  build-linux:
-    name: Build Linux Debian Package
-    runs-on: windows-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dpkg-dev debhelper python3-tk
-      
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-      
-      - name: Create assets directory
-        run: |
-          mkdir -p assets
-          # Create placeholder icon
-          convert -size 256x256 xc:blue assets/icon.png || touch assets/icon.png
-      
-      - name: Build executable with PyInstaller
-        run: |
-          pyinstaller --clean --noconfirm build/linux/fim_client.spec
-      
-      - name: Get version
-        id: get_version
-        run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="dev-$(git rev-parse --short HEAD)"
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
-      
-      - name: Create Debian package structure
-        run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          PKG_DIR="build/linux/fim-client_${VERSION}"
-          
-          mkdir -p "${PKG_DIR}/DEBIAN"
-          mkdir -p "${PKG_DIR}/opt/fim-client"
-          mkdir -p "${PKG_DIR}/usr/share/applications"
-          mkdir -p "${PKG_DIR}/usr/share/icons/hicolor/256x256/apps"
-          mkdir -p "${PKG_DIR}/usr/bin"
-          mkdir -p "${PKG_DIR}/etc/systemd/system"
-          
-          cp -r dist/fim_client/* "${PKG_DIR}/opt/fim-client/"
-          cp build/linux/fim-client.desktop "${PKG_DIR}/usr/share/applications/"
-          
-          if [ -f "assets/icon.png" ]; then
-            cp assets/icon.png "${PKG_DIR}/usr/share/icons/hicolor/256x256/apps/fim-client.png"
-          else
-            touch "${PKG_DIR}/usr/share/icons/hicolor/256x256/apps/fim-client.png"
-          fi
-          
-          cat > "${PKG_DIR}/usr/bin/fim-client" << 'EOF'
-          #!/bin/bash
-          cd /opt/fim-client && ./fim_client "$@"
-          EOF
-          chmod +x "${PKG_DIR}/usr/bin/fim-client"
-          
-          cp build/linux/fim-client.service "${PKG_DIR}/etc/systemd/system/"
-          
-          cat > "${PKG_DIR}/DEBIAN/control" << EOF
-          Package: fim-client
-          Version: ${VERSION}
-          Section: utils
-          Priority: optional
-          Architecture: amd64
-          Maintainer: FIM Team <contact@example.com>
-          Description: File Integrity Monitoring Client
-           FIM Client monitors file changes and reports them to a central server.
-           It provides real-time monitoring with cryptographic verification.
-          Depends: python3, python3-tk
-          EOF
-          
-          cat > "${PKG_DIR}/DEBIAN/postinst" << 'EOF'
-          #!/bin/bash
-          set -e
-          systemctl daemon-reload || true
-          update-desktop-database || true
-          gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
-          echo "FIM Client installed successfully!"
-          echo "Run 'fim-client' to start the application."
-          exit 0
-          EOF
-          chmod +x "${PKG_DIR}/DEBIAN/postinst"
-          
-          cat > "${PKG_DIR}/DEBIAN/prerm" << 'EOF'
-          #!/bin/bash
-          set -e
-          systemctl stop fim-client.service 2>/dev/null || true
-          systemctl disable fim-client.service 2>/dev/null || true
-          exit 0
-          EOF
-          chmod +x "${PKG_DIR}/DEBIAN/prerm"
-      
-      - name: Build Debian package
-        run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          PKG_DIR="build/linux/fim-client_${VERSION}"
-          
-          dpkg-deb --build "${PKG_DIR}"
-          
-          mkdir -p build/linux/output
-          mv "build/linux/fim-client_${VERSION}.deb" "build/linux/output/"
-      
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-debian-package
-          path: build/linux/output/*.deb
-          retention-days: 30
-  
-  create-release:
-    name: Create GitHub Release
-    needs: [build-windows, build-linux]
-    runs-on: windows-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-installer
-          path: ./artifacts/windows/
-      
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-debian-package
-          path: ./artifacts/linux/
-      
-      - name: Get version from tag
-        id: get_version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-      
-      - name: Generate release notes
-        id: release_notes
-        run: |
-          cat > release_notes.md << EOF
-          ## FIM Client v${{ steps.get_version.outputs.VERSION }}
-          
-          ### Downloads
-          
-          **Windows:**
-          - FIMClient-${{ steps.get_version.outputs.VERSION }}-Setup.exe
-          
-          **Linux:**
-          - fim-client_${{ steps.get_version.outputs.VERSION }}.deb
-          
-          ### Installation
-          
-          **Windows:**
-          1. Download the installer
-          2. Run FIMClient-Setup.exe
-          3. Follow the installation wizard
-          4. The installer will test server connection during setup
-          
-          **Linux (Debian/Ubuntu):**
-          \`\`\`bash
-          sudo dpkg -i fim-client_${{ steps.get_version.outputs.VERSION }}.deb
-          sudo apt-get install -f
-          \`\`\`
-          
-          ### Features
-          - Real-time file monitoring with Merkle tree verification
-          - Event queue with handshake protocol
-          - Directory selection with admin verification
-          - Offline resilience with automatic retry
-          - Dashboard for centralized monitoring
-          
-          ### System Requirements
-          - **Windows:** Windows 10 or later
-          - **Linux:** Ubuntu 20.04+ / Debian 10+ (or compatible)
-          - Internet connection for server communication
-          
-          For more information, see the [documentation](https://github.com/${{ github.repository }}/tree/main/docs).
-          EOF
-      
+          .\build\windows\build_local.bat
+
       - name: Create Release
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: v${{ env.VERSION }}
+          title: Release v${{ env.VERSION }}
           files: |
-            artifacts/windows/*
-            artifacts/linux/*
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
+            build/windows/Output/FIMClient-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
