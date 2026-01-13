@@ -55,7 +55,7 @@ mkdir -p "${PKG_DIR}/etc/systemd/system"
 
 # Copy files
 echo "Copying files..."
-cp -r dist/fim_client/* "${PKG_DIR}/opt/fim-client/"
+cp -r build/linux/dist/fim_client/* "${PKG_DIR}/opt/fim-client/"
 cp build/linux/fim-client.desktop "${PKG_DIR}/usr/share/applications/"
 
 # Copy icon if exists
