@@ -17,7 +17,6 @@ AppVersion={#MyAppVersion}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-LicenseFile=..\..\LICENSE
 OutputDir=Output
 OutputBaseFilename=FIMClient-Setup
 Compression=lzma
