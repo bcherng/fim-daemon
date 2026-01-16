@@ -66,6 +66,9 @@ class FIMEventHandler:
                             result['validation']
                         )
                         
+                        # Fix Hash Chain: Update remaining events in queue to use this new valid hash
+                        self.state.update_queued_events_base(event['root_hash'])
+                        
                         # Dequeue event
                         self.state.dequeue_event()
                         self.log_to_gui(
@@ -123,6 +126,10 @@ class FIMEventHandler:
                     'reason': data.get('error', 'Unknown error')
                 }
             elif response.status_code == 401:
+                data = response.json()
+                if "not registered" in data.get('error', '').lower():
+                    self.gui_queue.put({'type': 'removal_detected'})
+                    return {'success': False, 'rejected': True, 'reason': 'Machine removed from server'}
                 # Token expired
                 self.state.clear_jwt()
                 return {'success': False, 'rejected': False}
@@ -262,6 +269,9 @@ class FIMEventHandler:
                 )
                 return True
             elif response.status_code == 401:
+                data = response.json()
+                if "not registered" in data.get('error', '').lower():
+                    self.gui_queue.put({'type': 'removal_detected'})
                 self.state.clear_jwt()
                 self.connection_mgr.mark_disconnected()
         except Exception as e:

@@ -93,6 +93,13 @@ class FIMState:
                 return event
             return None
     
+    def update_queued_events_base(self, new_base_hash):
+        """Update all events in the queue to use a new last_valid_hash"""
+        with self.lock:
+            for event in self.state['event_queue']:
+                event['last_valid_hash'] = new_base_hash
+            self.save()
+    
     def get_queue_size(self):
         """Get current queue size"""
         with self.lock:

@@ -285,11 +285,51 @@ class FIMClientGUI:
                     self.update_status(msg['connected'])
                 elif msg['type'] == 'pending':
                     self.update_pending_count(msg['count'])
+                elif msg['type'] == 'removal_detected':
+                    self.handle_removal()
         except queue.Empty:
             pass
         
         self.root.after(100, self.process_queue)
     
+    def handle_removal(self):
+        """Handle machine removal from server"""
+        if hasattr(self, 'removal_notified'):
+            return
+        self.removal_notified = True
+        
+        self.add_log(datetime.now().isoformat(), "CRITICAL: This machine has been removed from the server.", "error")
+        self.status_label.config(text="● Removed", foreground="gray")
+        
+        result = messagebox.askyesno(
+            "Machine Removed",
+            "This machine has been removed from the monitoring list by an administrator.\n\n"
+            "Would you like to uninstall the client? This will clear all local monitoring state and data."
+        )
+        
+        if result:
+            self.uninstall_client()
+        else:
+            messagebox.showinfo("Note", "Monitoring halted. You can manually uninstall or clear state later.")
+            self.stop_monitoring()
+
+    def uninstall_client(self):
+        """Wipe local state and exit"""
+        from datetime import datetime
+        import sys
+        try:
+            self.add_log(datetime.now().isoformat(), "Uninstalling...", "warning")
+            self.stop_monitoring()
+            
+            # Wipe state file
+            if os.path.exists(self.state.state_file):
+                os.remove(self.state.state_file)
+            
+            messagebox.showinfo("Success", "Client uninstalled. The application will now close.")
+            self.root.destroy()
+            sys.exit(0)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to uninstall: {e}")    
     def on_close(self):
         """Handle window close - minimize to tray"""
         self.root.withdraw()
