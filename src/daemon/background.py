@@ -9,9 +9,9 @@ from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from fim import FIMDaemon
+from core.fim import FIMDaemon
 from core.event_handler import FIMEventHandler
-from utils import ensure_directory
+from core.utils import ensure_directory
 
 
 class WatchdogFileHandler(FileSystemEventHandler):

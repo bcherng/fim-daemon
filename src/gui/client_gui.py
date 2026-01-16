@@ -20,7 +20,7 @@ class FIMClientGUI:
         self.connection_mgr = connection_mgr
         self.admin_verifier = admin_verifier
         self.queue = queue.Queue()
-            self.daemon_thread = None
+        self.daemon_thread = None
         
         self.root = tk.Tk()
         self.root.title(f"FIM Client - {config.host_id[:16]}")
@@ -276,7 +276,8 @@ class FIMClientGUI:
     def process_queue(self):
         """Process messages from daemon thread"""
         try:
-            while True:
+            # Process up to 30 messages at once to keep UI responsive
+            for _ in range(30):
                 msg = self.queue.get_nowait()
                 if msg['type'] == 'log':
                     self.add_log(msg['timestamp'], msg['message'], msg.get('status', 'info'))

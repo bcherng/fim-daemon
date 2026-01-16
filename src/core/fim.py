@@ -7,8 +7,8 @@ import sys
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from merkle import build_merkle_tree, update_merkle_tree, get_merkle_path
-from utils import sha256_file, ensure_directory
+from core.merkle import build_merkle_tree, update_merkle_tree, get_merkle_path
+from core.utils import sha256_file, ensure_directory
 
 SERVER_URL = "https://fim-distribution.vercel.app"
 
@@ -81,8 +81,11 @@ class FIMConfig:
         return True
 
     def report_event(self, event_data):
-        """Report file event to server using JWT"""
+        """Report file event to server and complete handshake"""
         try:
+            # Include last valid hash for attestation check
+            event_data['last_valid_hash'] = self.host_id # Placeholder if not available
+            
             response = requests.post(
                 f"{self.server_url}/api/events/report",
                 headers={
@@ -91,8 +94,39 @@ class FIMConfig:
                 json=event_data,
                 timeout=10
             )
+            
             if response.status_code == 200:
-                self.logger.debug(f"Event reported successfully: {event_data['event_type']}")
+                data = response.json()
+                event_id = data.get('event_id')
+                
+                if event_id:
+                    self.logger.debug(f"Event verified by server (ID: {event_id}), sending acknowledgement...")
+                    
+                    # Complete handshake with acknowledgement
+                    ack_res = requests.post(
+                        f"{self.server_url}/api/events/acknowledge",
+                        headers={
+                            'Authorization': f'Bearer {self.daemon_token}'
+                        },
+                        json={
+                            'event_id': event_id,
+                            'validation_received': True
+                        },
+                        timeout=5
+                    )
+                    
+                    if ack_res.status_code == 200:
+                        self.logger.info(f"Change detected and handshake complete: {event_data['file_path']}")
+                        return True
+                    else:
+                        self.logger.warning(f"Failed to acknowledge event: {ack_res.status_code}")
+                else:
+                    self.logger.debug(f"Event reported successfully: {event_data['event_type']}")
+                    return True
+            elif response.status_code == 400:
+                error_data = response.json()
+                self.logger.warning(f"Event rejected by server: {error_data.get('error')}")
+                return False
             elif response.status_code == 401:
                 # Token might be expired
                 return False
@@ -100,7 +134,7 @@ class FIMConfig:
                 self.logger.warning(f"Failed to report event: {response.status_code}")
         except Exception as e:
             self.logger.error(f"Error reporting event: {e}")
-        return True
+        return False
 
     def save_baseline(self, root_hash, file_count):
         """Save initial baseline to server"""
@@ -168,6 +202,7 @@ class FIMEventHandler(FileSystemEventHandler):
             self.ignore_events = False
             return
 
+        raw_old_root = self.tree[0][0] if self.tree else None
         self.files.append((event.src_path, h))
         self.tree, self.files = build_merkle_tree(self.files)
 
@@ -179,6 +214,7 @@ class FIMEventHandler(FileSystemEventHandler):
                 'file_path': event.src_path,
                 'new_hash': h.hex(),
                 'root_hash': path_info['root_hash'].hex(),
+                'last_valid_hash': raw_old_root.hex() if raw_old_root else None,
                 'merkle_proof': {
                     'path': [p.hex() for p in path_info['path']],
                     'index': path_info['index']
@@ -206,6 +242,7 @@ class FIMEventHandler(FileSystemEventHandler):
                     self.ignore_events = False
                     return
 
+                raw_old_root = self.tree[0][0] if self.tree else None
                 self.files[i] = (path, h)
                 self.tree = update_merkle_tree(self.tree, i, h)
 
@@ -218,6 +255,7 @@ class FIMEventHandler(FileSystemEventHandler):
                     'old_hash': old_hash.hex(),
                     'new_hash': h.hex(),
                     'root_hash': path_info['root_hash'].hex() if path_info else None,
+                    'last_valid_hash': raw_old_root.hex() if raw_old_root else None,
                     'merkle_proof': {
                         'path': [p.hex() for p in path_info['path']] if path_info else [],
                         'index': path_info['index'] if path_info else 0
@@ -242,6 +280,7 @@ class FIMEventHandler(FileSystemEventHandler):
                 old_hash = h
                 break
 
+        raw_old_root = self.tree[0][0] if self.tree else None
         self.files = [(path, h) for path, h in self.files if path != event.src_path]
 
         if self.files:
@@ -254,6 +293,7 @@ class FIMEventHandler(FileSystemEventHandler):
                 'file_path': event.src_path,
                 'old_hash': old_hash.hex() if old_hash else None,
                 'root_hash': root_hash,
+                'last_valid_hash': raw_old_root.hex() if raw_old_root else None,
                 'merkle_proof': None
             }
             if self.config.report_event(event_data):

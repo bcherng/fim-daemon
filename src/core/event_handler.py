@@ -7,8 +7,8 @@ import threading
 from datetime import datetime
 import requests
 
-from merkle import build_merkle_tree, get_merkle_path
-from utils import sha256_file
+from core.merkle import build_merkle_tree, get_merkle_path
+from core.utils import sha256_file
 
 
 class FIMEventHandler:
@@ -127,9 +127,14 @@ class FIMEventHandler:
                 self.state.clear_jwt()
                 return {'success': False, 'rejected': False}
             else:
+                try:
+                    error_msg = response.json().get('error', response.text)
+                except:
+                    error_msg = response.text
+                self.config.logger.error(f"Server error {response.status_code}: {error_msg}")
                 return {'success': False, 'rejected': False}
         except Exception as e:
-            print(f"Failed to send event: {e}")
+            self.config.logger.error(f"Failed to send event: {e}")
             return {'success': False, 'rejected': False}
     
     def send_acknowledgement(self, event_id, validation):
@@ -234,7 +239,11 @@ class FIMEventHandler:
             return False
         
         try:
-            root_hash = self.tree[0][0].hex() if self.tree else None
+            # IMPORTANT: Send the LAST VALID hash the server and client both agreed on.
+            # Sending the current local tree root hash (which may be unvalidated)
+            # would update the server's record prematurely and break attestation 
+            # for any pending events in the queue.
+            root_hash = self.state.get_last_valid_hash()
             
             response = requests.post(
                 f"{self.config.server_url}/api/clients/heartbeat",

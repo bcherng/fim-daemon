@@ -13,7 +13,7 @@ class FIMState:
     
     def __init__(self, state_file):
         self.state_file = state_file
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.state = self._load_state()
     
     def _load_state(self):
