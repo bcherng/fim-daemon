@@ -25,6 +25,7 @@ class FIMEventHandler:
         self.last_heartbeat = 0
         self.event_counter = 0
         self.processing_queue = False
+        self.lock = threading.Lock()
     
     def log_to_gui(self, message, status="info"):
         """Send log message to GUI"""
@@ -161,84 +162,78 @@ class FIMEventHandler:
             return False
     
     def detect_file_change(self, file_path, is_new=False, is_deleted=False):
-        """Detect and queue file change"""
-        self.ignore_events = True
-        time.sleep(0.05)  # debounce
+        """Detect and queue file change with thread safety and deduplication"""
+        # System-level debounce to allow Windows file operations to settle
+        time.sleep(0.1) 
         
-        h = None
-        if not is_deleted:
-            h = sha256_file(file_path)
-            if not h:
-                self.config.logger.error(f"FAILED to hash: {file_path}")
-                self.ignore_events = False
-                return
-        
-        # Find or add file
-        file_index = -1
-        old_hash = None
-        for i, (path, file_hash) in enumerate(self.files):
-            if path == file_path:
-                file_index = i
-                old_hash = file_hash
-                break
-        
-        if is_deleted:
-            if file_index >= 0:
-                self.files.pop(file_index)
-            else:
-                # File not tracked, ignore
-                self.ignore_events = False
-                return
-        elif file_index >= 0:
-            # Modified
-            if old_hash == h:
-                self.ignore_events = False
-                return
+        with self.lock:
+            h = None
+            if not is_deleted:
+                h = sha256_file(file_path)
+                if not h:
+                    # File might have been moved or deleted between event and hash attempt
+                    self.config.logger.warning(f"Could not hash {file_path} - skipping")
+                    return
             
-            self.files[file_index] = (file_path, h)
-        else:
-            # Created
-            self.files.append((file_path, h))
-        
-        # Rebuild tree
-        self.tree, self.files = build_merkle_tree(self.files)
-        
-        # Create event data
-        path_info = get_merkle_path(self.tree, self.files, file_path)
-        
-        event_data = {
-            'id': f"{self.config.host_id}-{self.event_counter}-{int(time.time()*1000)}",
-            'client_id': self.config.host_id,
-            'event_type': 'deleted' if is_deleted else ('modified' if file_index >= 0 else 'created'),
-            'file_path': file_path,
-            'old_hash': old_hash.hex() if old_hash else None,
-            'new_hash': h.hex() if h else None,
-            'root_hash': path_info['root_hash'].hex() if path_info else None,
-            'merkle_proof': {
-                'path': [p.hex() for p in path_info['path']] if path_info else [],
-                'index': path_info['index'] if path_info else 0
-            } if path_info else None,
-            'last_valid_hash': self.state.get_last_valid_hash(),
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        self.event_counter += 1
-        
-        # Queue the event
-        self.state.enqueue_event(event_data)
-        self.log_to_gui(
-            f"Queued: {event_data['event_type']} - {file_path}", 
-            "info"
-        )
-        self.gui_queue.put({
-            'type': 'pending', 
-            'count': self.state.get_queue_size()
-        })
-        
-        # Try to process queue
-        threading.Thread(target=self.process_event_queue, daemon=True).start()
-        
-        self.ignore_events = False
+            # Find current file state in memory
+            file_index = -1
+            old_hash = None
+            for i, (path, file_hash) in enumerate(self.files):
+                if path == file_path:
+                    file_index = i
+                    old_hash = file_hash
+                    break
+            
+            # DEDUPLICATION CHECK
+            if is_deleted:
+                if file_index < 0:
+                    return # Already removed or never tracked
+                self.files.pop(file_index)
+            elif file_index >= 0:
+                # Modification check: Has it actually changed from what we already have?
+                if old_hash == h:
+                    return # Duplicate event (hash matches current memory state)
+                self.files[file_index] = (file_path, h)
+            else:
+                # Creation
+                self.files.append((file_path, h))
+            
+            # Rebuild tree logic
+            self.tree, self.files = build_merkle_tree(self.files)
+            path_info = get_merkle_path(self.tree, self.files, file_path)
+            
+            # Create event data
+            event_data = {
+                'id': f"{self.config.host_id}-{self.event_counter}-{int(time.time()*1000)}",
+                'client_id': self.config.host_id,
+                'event_type': 'deleted' if is_deleted else ('modified' if file_index >= 0 else 'created'),
+                'file_path': file_path,
+                'old_hash': old_hash.hex() if old_hash else None,
+                'new_hash': h.hex() if h else None,
+                'root_hash': path_info['root_hash'].hex() if path_info else None,
+                'merkle_proof': {
+                    'path': [p.hex() for p in path_info['path']] if path_info else [],
+                    'index': path_info['index'] if path_info else 0
+                } if path_info else None,
+                'last_valid_hash': self.state.get_last_valid_hash(),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            self.event_counter += 1
+            
+            # Queue the event
+            self.state.enqueue_event(event_data)
+            self.log_to_gui(
+                f"Queued: {event_data['event_type']} - {file_path}", 
+                "info"
+            )
+            self.gui_queue.put({
+                'type': 'pending', 
+                'count': self.state.get_queue_size()
+            })
+            
+            # Try to process queue in background
+            threading.Thread(target=self.process_event_queue, daemon=True).start()
     
     def send_heartbeat(self):
         """Send heartbeat to server"""
