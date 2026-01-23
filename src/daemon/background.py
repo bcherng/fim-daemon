@@ -84,31 +84,12 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_ev
         'type': 'log',
         'timestamp': datetime.now().isoformat(),
         'message': f'Watching {len(files)} files in {watch_dir}',
-    gui_queue.put({
-        'type': 'log',
-        'timestamp': datetime.now().isoformat(),
-        'message': f'Watching {len(files)} files in {watch_dir}',
         'status': 'success'
     })
-    
-    # Check for pending events on startup
-    pending_count = state.get_queue_size()
-    gui_queue.put({'type': 'pending', 'count': pending_count})
-    
-    if pending_count > 0 and conn_mgr.connected:
-        gui_queue.put({
-            'type': 'log',
-            'timestamp': datetime.now().isoformat(),
-            'message': f'Processing {pending_count} pending events...',
-            'status': 'info'
-        })
-        threading.Thread(
-            target=event_handler.process_event_queue,
-            daemon=True
-        ).start()
+    gui_queue.put({'type': 'pending', 'count': state.get_queue_size()})
     
     # Main loop
-    heartbeat_interval = 360  # 6 minutes
+    heartbeat_interval = 900  # 15 minutes
     last_heartbeat = 0
     
     try:
