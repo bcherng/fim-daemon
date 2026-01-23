@@ -10,6 +10,8 @@ from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox
 
+from daemon.background import run_daemon_background
+
 
 class FIMClientGUI:
     """GUI for FIM Client with directory selection"""
@@ -231,7 +233,6 @@ class FIMClientGUI:
         if not watch_dir:
             return
         
-        from daemon.background import run_daemon_background
         
         self.stop_event = threading.Event()
         
