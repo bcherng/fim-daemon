@@ -5,6 +5,7 @@ Persistent state management for FIM client
 import os
 import json
 import threading
+import uuid
 from pathlib import Path
 
 
@@ -15,6 +16,7 @@ class FIMState:
         self.state_file = state_file
         self.lock = threading.RLock()
         self.state = self._load_state()
+        self.boot_id = uuid.uuid4().hex # Unique ID for this process run
     
     def _load_state(self):
         """Load state from disk or create default"""
