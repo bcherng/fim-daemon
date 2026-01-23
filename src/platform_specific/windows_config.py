@@ -24,6 +24,11 @@ class WindowsHardwareIdentifier:
         """Generate client ID from hardware characteristics"""
         hardware_data = []
         
+        # Configure startup info to hide console window
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+
         # Try to get MachineGuid from registry
         try:
             result = subprocess.run(
@@ -32,7 +37,8 @@ class WindowsHardwareIdentifier:
                  '/v', 'MachineGuid'],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                startupinfo=startupinfo
             )
             
             if result.returncode == 0:
@@ -53,7 +59,8 @@ class WindowsHardwareIdentifier:
                 ['wmic', 'csproduct', 'get', 'uuid'],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                startupinfo=startupinfo
             )
             
             if result.returncode == 0:
@@ -85,11 +92,16 @@ class WindowsHardwareIdentifier:
         
         # Try to get UUID
         try:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
             result = subprocess.run(
                 ['wmic', 'csproduct', 'get', 'uuid'],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                startupinfo=startupinfo
             )
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
