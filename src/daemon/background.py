@@ -105,6 +105,16 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_ev
                 
             current_time = time.time()
             
+            # Check for deregistration
+            if event_handler.deregistered:
+                gui_queue.put({
+                    'type': 'log',
+                    'timestamp': datetime.now().isoformat(),
+                    'message': '⚠ Client deregistered by server. Stopping monitoring.',
+                    'status': 'error'
+                })
+                break
+
             # Reconnection logic
             if not conn_mgr.connected:
                 if conn_mgr.attempt_connection():
