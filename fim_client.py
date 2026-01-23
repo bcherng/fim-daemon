@@ -16,6 +16,7 @@ from core.state import FIMState
 from core.connection import ConnectionManager
 from core.admin import AdminVerifier
 from gui.client_gui import FIMClientGUI
+import daemon.background # Force PyInstaller to include this module
 
 
 def get_state_directory():
