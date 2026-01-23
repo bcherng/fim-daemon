@@ -25,6 +25,7 @@ class FIMEventHandler:
         self.last_heartbeat = 0
         self.event_counter = 0
         self.processing_queue = False
+        self.deregistered = False
         self.lock = threading.Lock()
     
     def log_to_gui(self, message, status="info"):
@@ -38,13 +39,13 @@ class FIMEventHandler:
     
     def process_event_queue(self):
         """Process events from queue with handshake protocol"""
-        if self.processing_queue or not self.connection_mgr.connected:
+        if self.processing_queue or not self.connection_mgr.connected or self.deregistered:
             return
         
         self.processing_queue = True
         
         try:
-            while self.connection_mgr.connected:
+            while self.connection_mgr.connected and not self.deregistered:
                 # Peek at first event
                 event = self.state.peek_event()
                 if not event:
@@ -87,6 +88,9 @@ class FIMEventHandler:
                         break
                 else:
                     # Server rejected or connection failed
+                    if self.deregistered:
+                        break # Stop processing immediately
+                    
                     if result.get('rejected'):
                         self.log_to_gui(
                             f"Event rejected: {result.get('reason')}", 
@@ -118,6 +122,18 @@ class FIMEventHandler:
                     'event_id': data['event_id'],
                     'validation': data['validation']
                 }
+            elif response.status_code == 403:
+                # Check for deregistration
+                data = response.json()
+                if data.get('status') == 'deregistered':
+                    self.deregistered = True
+                    self.gui_queue.put({
+                        'type': 'deregistered',
+                        'message': 'This machine has been deregistered by the administrator.'
+                    })
+                    return {'success': False, 'rejected': True, 'reason': 'Client deregistered'}
+                
+                return {'success': False, 'rejected': True, 'reason': 'Forbidden'}
             elif response.status_code == 400:
                 # Server rejected
                 data = response.json()
@@ -163,6 +179,9 @@ class FIMEventHandler:
     
     def detect_file_change(self, file_path, is_new=False, is_deleted=False):
         """Detect and queue file change with thread safety and deduplication"""
+        if self.deregistered:
+            return
+            
         # System-level debounce to allow Windows file operations to settle
         time.sleep(0.1) 
         
@@ -237,7 +256,7 @@ class FIMEventHandler:
     
     def send_heartbeat(self):
         """Send heartbeat to server"""
-        if not self.connection_mgr.connected:
+        if not self.connection_mgr.connected or self.deregistered:
             return False
         
         try:
@@ -252,7 +271,10 @@ class FIMEventHandler:
                 headers={'Authorization': f'Bearer {self.config.daemon_token}'},
                 json={
                     'file_count': len(self.files),
-                    'current_root_hash': root_hash
+                    'current_root_hash': root_hash,
+                    'boot_id': self.state.boot_id,
+                    'timestamp': datetime.now().isoformat(),
+                    'expected_interval': 900
                 },
                 timeout=5
             )
@@ -263,6 +285,17 @@ class FIMEventHandler:
                     "success"
                 )
                 return True
+            elif response.status_code == 403:
+                # Check for deregistration
+                data = response.json()
+                if data.get('status') == 'deregistered':
+                    self.deregistered = True
+                    self.gui_queue.put({
+                        'type': 'deregistered',
+                        'message': 'This machine has been deregistered by the administrator.'
+                    })
+                    self.connection_mgr.mark_disconnected()
+                    return False
             elif response.status_code == 401:
                 data = response.json()
                 if "not registered" in data.get('error', '').lower():
