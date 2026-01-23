@@ -20,6 +20,7 @@ hidden_imports = [
     'bcrypt',
     'cffi',
     '_cffi_backend',
+    'daemon.background',
 ]
 
 # Collect all submodules from core, gui, daemon, platform_specific
