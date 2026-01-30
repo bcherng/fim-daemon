@@ -129,7 +129,7 @@ class FIMEventHandler:
                     self.deregistered = True
                     self.gui_queue.put({
                         'type': 'deregistered',
-                        'message': 'This machine has been deregistered by the administrator.'
+                        'message': data.get('message', 'This machine has been deregistered by the administrator.')
                     })
                     return {'success': False, 'rejected': True, 'reason': 'Client deregistered'}
                 
@@ -292,7 +292,7 @@ class FIMEventHandler:
                     self.deregistered = True
                     self.gui_queue.put({
                         'type': 'deregistered',
-                        'message': 'This machine has been deregistered by the administrator.'
+                        'message': data.get('message', 'This machine has been deregistered.')
                     })
                     self.connection_mgr.mark_disconnected()
                     return False

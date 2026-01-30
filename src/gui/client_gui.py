@@ -33,7 +33,8 @@ class FIMClientGUI:
         if not self.state.get_watch_directory():
             self.root.after(500, self.prompt_directory_selection)
         else:
-            self.start_monitoring()
+            # Schedule start_monitoring after GUI loop starts
+            self.root.after(100, self.start_monitoring)
     
     def setup_ui(self):
         """Setup GUI components"""
@@ -286,32 +287,172 @@ class FIMClientGUI:
                 elif msg['type'] == 'pending':
                     self.update_pending_count(msg['count'])
                 elif msg['type'] == 'removal_detected':
-                    self.handle_removal()
+                    self.handle_deregistration(msg.get('message'))
+                elif msg['type'] == 'deregistered':
+                    self.handle_deregistration(msg.get('message'))
         except queue.Empty:
             pass
         
         self.root.after(100, self.process_queue)
     
-    def handle_removal(self):
-        """Handle machine removal from server"""
-        if hasattr(self, 'removal_notified'):
+    def handle_deregistration(self, server_message=None):
+        """Handle machine deregistration - show reregister/uninstall options"""
+        if hasattr(self, 'deregistration_handled'):
             return
-        self.removal_notified = True
+        self.deregistration_handled = True
         
-        self.add_log(datetime.now().isoformat(), "CRITICAL: This machine has been removed from the server.", "error")
-        self.status_label.config(text="● Removed", foreground="gray")
+        message = server_message or "This machine has been deregistered by an administrator."
         
-        result = messagebox.askyesno(
-            "Machine Removed",
-            "This machine has been removed from the monitoring list by an administrator.\n\n"
-            "Would you like to uninstall the client? This will clear all local monitoring state and data."
-        )
+        self.add_log(datetime.now().isoformat(), f"⚠ DEREGISTERED: {message}", "error")
+        self.status_label.config(text="● Deregistered", foreground="orange")
         
-        if result:
-            self.uninstall_client()
-        else:
-            messagebox.showinfo("Note", "Monitoring halted. You can manually uninstall or clear state later.")
-            self.stop_monitoring()
+        # Stop monitoring
+        self.stop_monitoring()
+        
+        # Show dialog with options
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Machine Deregistered")
+        dialog.geometry("450x350")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(
+            dialog,
+            text="⚠ Machine Deregistered",
+            font=("Arial", 12, "bold"),
+            foreground="orange"
+        ).pack(pady=10)
+        
+        ttk.Label(
+            dialog,
+            text=message,
+            wraplength=400,
+            justify=tk.LEFT
+        ).pack(pady=10, padx=20)
+        
+        ttk.Label(
+            dialog,
+            text="Choose an action (requires admin credentials):",
+            font=("Arial", 10, "bold")
+        ).pack(pady=10)
+        
+        # Admin credentials frame
+        cred_frame = ttk.Frame(dialog)
+        cred_frame.pack(pady=10, padx=20, fill=tk.X)
+        
+        ttk.Label(cred_frame, text="Admin Username:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        username_entry = ttk.Entry(cred_frame, width=30)
+        username_entry.grid(row=0, column=1, pady=5, padx=5)
+        
+        ttk.Label(cred_frame, text="Admin Password:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        password_entry = ttk.Entry(cred_frame, show="*", width=30)
+        password_entry.grid(row=1, column=1, pady=5, padx=5)
+        
+        # Button frame
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=20)
+        
+        def reregister():
+            username = username_entry.get()
+            password = password_entry.get()
+            
+            if not username or not password:
+                messagebox.showerror("Error", "Admin credentials required")
+                return
+            
+            if self.attempt_reregistration(username, password):
+                messagebox.showinfo("Success", "Machine reregistered successfully! Monitoring will resume.")
+                dialog.destroy()
+                self.start_monitoring()
+            else:
+                messagebox.showerror("Error", "Reregistration failed. Check credentials and try again.")
+        
+        def uninstall():
+            username = username_entry.get()
+            password = password_entry.get()
+            
+            if not username or not password:
+                messagebox.showerror("Error", "Admin credentials required")
+                return
+            
+            confirm = messagebox.askyesno(
+                "Confirm Uninstall",
+                "This will permanently uninstall the FIM client and clear all local data.\n\n"
+                "Server logs will be preserved.\n\nContinue?"
+            )
+            
+            if confirm:
+                if self.attempt_uninstall(username, password):
+                    dialog.destroy()
+                    self.uninstall_client()
+                else:
+                    messagebox.showerror("Error", "Uninstall notification failed. Check credentials.")
+        
+        ttk.Button(
+            btn_frame,
+            text="Reregister Machine",
+            command=reregister
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(
+            btn_frame,
+            text="Uninstall Client",
+            command=uninstall
+        ).pack(side=tk.LEFT, padx=5)
+
+    def attempt_reregistration(self, username, password):
+        """Attempt to reregister with server"""
+        try:
+            import requests
+            response = requests.post(
+                f"{self.config.server_url}/api/clients/reregister",
+                json={
+                    'client_id': self.config.host_id,
+                    'username': username,
+                    'password': password
+                },
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Save new token
+                self.state.set_jwt(data['token'])
+                self.add_log(datetime.now().isoformat(), "✓ Reregistered successfully", "success")
+                delattr(self, 'deregistration_handled')  # Allow future deregistration handling
+                return True
+            else:
+                error = response.json().get('error', 'Unknown error')
+                self.add_log(datetime.now().isoformat(), f"✗ Reregistration failed: {error}", "error")
+                return False
+        except Exception as e:
+            self.add_log(datetime.now().isoformat(), f"✗ Reregistration error: {str(e)}", "error")
+            return False
+
+    def attempt_uninstall(self, username, password):
+        """Notify server of uninstall"""
+        try:
+            import requests
+            response = requests.post(
+                f"{self.config.server_url}/api/clients/uninstall",
+                json={
+                    'client_id': self.config.host_id,
+                    'username': username,
+                    'password': password
+                },
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                self.add_log(datetime.now().isoformat(), "✓ Uninstall recorded on server", "success")
+                return True
+            else:
+                error = response.json().get('error', 'Unknown error')
+                self.add_log(datetime.now().isoformat(), f"✗ Uninstall notification failed: {error}", "error")
+                return False
+        except Exception as e:
+            self.add_log(datetime.now().isoformat(), f"✗ Uninstall error: {str(e)}", "error")
+            return False
 
     def uninstall_client(self):
         """Wipe local state and exit"""
