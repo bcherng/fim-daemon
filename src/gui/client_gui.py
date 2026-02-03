@@ -213,6 +213,16 @@ class FIMClientGUI:
                         "warning"
                     )
                     
+                    # Report to server
+                    event_data = {
+                        'client_id': self.config.host_id,
+                        'event_type': 'directory_monitored_changed',
+                        'file_path': directory,
+                        'old_hash': old_dir, # abusing old_hash for old_dir path
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    self.config.report_event(event_data)
+                    
                     self.set_monitoring_directory(directory)
             else:
                 messagebox.showerror("Authentication Failed", "Invalid credentials")

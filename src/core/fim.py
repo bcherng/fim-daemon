@@ -170,25 +170,25 @@ class FIMEventHandler(FileSystemEventHandler):
         self.last_heartbeat = 0
 
     def send_heartbeat_if_needed(self):
-        """Send heartbeat every 5 minutes"""
+        """Send heartbeat every 15 minutes"""
         current_time = time.time()
-        if current_time - self.last_heartbeat > 300:  # 5 minutes
+        if current_time - self.last_heartbeat > 900:  # 15 minutes
             root_hash = self.tree[0][0].hex() if self.tree else None
             if self.config.send_heartbeat(len(self.files), root_hash):
                 self.last_heartbeat = current_time
 
     def on_created(self, event):
-        if self.ignore_events or event.is_directory:
+        if self.ignore_events:
             return
         self._process_created(event)
 
     def on_modified(self, event):
-        if self.ignore_events or event.is_directory:
+        if self.ignore_events:
             return
         self._process_modified(event)
 
     def on_deleted(self, event):
-        if self.ignore_events or event.is_directory:
+        if self.ignore_events:
             return
         self._process_deleted(event)
 
@@ -196,11 +196,13 @@ class FIMEventHandler(FileSystemEventHandler):
         self.ignore_events = True
         time.sleep(0.05)  # debounce for file write completion
 
-        h = sha256_file(event.src_path)
-        if not h:
-            self.config.logger.error(f"FAILED to track new file: {event.src_path}")
-            self.ignore_events = False
-            return
+        h = None
+        if not event.is_directory:
+            h = sha256_file(event.src_path)
+            if not h:
+                self.config.logger.error(f"FAILED to track new file: {event.src_path}")
+                self.ignore_events = False
+                return
 
         raw_old_root = self.tree[0][0] if self.tree else None
         self.files.append((event.src_path, h))
@@ -210,10 +212,10 @@ class FIMEventHandler(FileSystemEventHandler):
         if path_info:
             event_data = {
                 'client_id': self.config.host_id,
-                'event_type': 'created',
+                'event_type': 'directory_created' if event.is_directory else 'created',
                 'file_path': event.src_path,
-                'new_hash': h.hex(),
-                'root_hash': path_info['root_hash'].hex(),
+                'new_hash': h.hex() if h else None,
+                'root_hash': path_info['root_hash'].hex() if path_info else None,
                 'last_valid_hash': raw_old_root.hex() if raw_old_root else None,
                 'merkle_proof': {
                     'path': [p.hex() for p in path_info['path']],
@@ -229,6 +231,18 @@ class FIMEventHandler(FileSystemEventHandler):
     def _process_modified(self, event):
         self.ignore_events = True
         time.sleep(0.05)  # debounce
+
+        if event.is_directory:
+            # Just report directory modification (e.g. metadata)
+            event_data = {
+                'client_id': self.config.host_id,
+                'event_type': 'directory_modified',
+                'file_path': event.src_path,
+                'timestamp': datetime.now().isoformat()
+            }
+            self.config.report_event(event_data)
+            self.ignore_events = False
+            return
 
         h = sha256_file(event.src_path)
         if not h:
@@ -289,7 +303,7 @@ class FIMEventHandler(FileSystemEventHandler):
             
             event_data = {
                 'client_id': self.config.host_id,
-                'event_type': 'deleted',
+                'event_type': 'directory_deleted' if event.is_directory else 'deleted',
                 'file_path': event.src_path,
                 'old_hash': old_hash.hex() if old_hash else None,
                 'root_hash': root_hash,
@@ -297,7 +311,7 @@ class FIMEventHandler(FileSystemEventHandler):
                 'merkle_proof': None
             }
             if self.config.report_event(event_data):
-                self.config.logger.info(f"File deleted: {event.src_path}")
+                self.config.logger.info(f"{'Directory' if event.is_directory else 'File'} deleted: {event.src_path}")
         else:
             self.tree = None
             event_data = {
