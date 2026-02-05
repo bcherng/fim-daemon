@@ -215,16 +215,40 @@ class FIMClientGUI:
                         "warning"
                     )
                     
-                    # Report to server
-                    event_data = {
+                    # 1. Stop current monitoring
+                    self.stop_monitoring()
+
+                    # 2. Report Directory Unselected (Old Path)
+                    old_root_hash = self.state.get_last_valid_hash()
+                    unselect_event = {
+                        'id': f"{self.config.host_id}-unselect-{int(time.time()*1000)}",
                         'client_id': self.config.host_id,
-                        'event_type': 'directory_monitored_changed',
-                        'file_path': directory,
-                        'old_hash': old_dir, # abusing old_hash for old_dir path
+                        'event_type': 'directory_unselected',
+                        'file_path': old_dir,
+                        'root_hash': old_root_hash,
                         'timestamp': datetime.now().isoformat()
                     }
-                    self.config.report_event(event_data)
+                    self.config.report_event(unselect_event)
+
+                    # 3. Initial scan for NEW directory
+                    from core.fim import FIMDaemon
+                    temp_daemon = FIMDaemon(self.config)
+                    new_tree, new_files = temp_daemon.build_initial_tree(directory)
+                    new_root_hash = new_tree[0][0].hex() if new_tree else None
+
+                    # 4. Report Directory Selected (New Path)
+                    select_event = {
+                        'id': f"{self.config.host_id}-select-{int(time.time()*1000)}",
+                        'client_id': self.config.host_id,
+                        'event_type': 'directory_selected',
+                        'file_path': directory,
+                        'root_hash': new_root_hash,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    self.config.report_event(select_event)
                     
+                    # 5. Update state and restart monitoring
+                    self.state.update_last_valid_hash(new_root_hash, {'timestamp': datetime.now().isoformat(), 'accepted': True})
                     self.set_monitoring_directory(directory)
             else:
                 messagebox.showerror("Authentication Failed", "Invalid credentials")
