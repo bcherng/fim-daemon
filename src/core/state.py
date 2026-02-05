@@ -34,7 +34,8 @@ class FIMState:
             'event_queue': [],
             'jwt_token': None,
             'token_expires': 0,
-            'admin_credentials': None
+            'admin_credentials': None,
+            'is_deregistered': False
         }
     
     def save(self):
@@ -108,7 +109,7 @@ class FIMState:
             return len(self.state['event_queue'])
     
     # JWT management
-    def set_jwt(self, token, expires_in):
+    def set_jwt(self, token, expires_in=2592000):
         """Set JWT token and expiration"""
         import time
         with self.lock:
@@ -157,3 +158,15 @@ class FIMState:
         with self.lock:
             self.state['admin_credentials'] = None
             self.save()
+
+    def set_deregistered(self, status):
+        """Set the deregistered flag"""
+        with self.lock:
+            self.state['is_deregistered'] = status
+            if status:
+                self.state['jwt_token'] = None
+            self.save()
+
+    def is_deregistered(self):
+        """Check if this machine is deregistered"""
+        return self.state.get('is_deregistered', False)

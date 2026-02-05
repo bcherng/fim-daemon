@@ -29,8 +29,10 @@ class FIMClientGUI:
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
-        # Check if directory is set
-        if not self.state.get_watch_directory():
+        # Check if deregistered
+        if self.state.is_deregistered():
+            self.handle_deregistration("This machine has been deregistered.")
+        elif not self.state.get_watch_directory():
             self.root.after(500, self.prompt_directory_selection)
         else:
             # Schedule start_monitoring after GUI loop starts
@@ -317,6 +319,7 @@ class FIMClientGUI:
         self.status_label.config(text="● Deregistered", foreground="orange")
         
         # Stop monitoring
+        self.state.set_deregistered(True)
         self.stop_monitoring()
         
         # Show dialog with options
@@ -427,9 +430,11 @@ class FIMClientGUI:
             if response.status_code == 200:
                 data = response.json()
                 # Save new token
-                self.state.set_jwt(data['token'])
+                self.state.set_jwt(data['token'], data.get('expires_in', 30 * 24 * 60 * 60))
+                self.state.set_deregistered(False)
                 self.add_log(datetime.now().isoformat(), "✓ Reregistered successfully", "success")
-                delattr(self, 'deregistration_handled')  # Allow future deregistration handling
+                if hasattr(self, 'deregistration_handled'):
+                    delattr(self, 'deregistration_handled')
                 return True
             else:
                 error = response.json().get('error', 'Unknown error')

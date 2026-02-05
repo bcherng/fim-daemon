@@ -73,8 +73,10 @@ class FIMConfig:
                 },
                 timeout=5
             )
+            if response.status_code == 403:
+                self.logger.error("Machine has been deregistered by server")
+                return "DEREGISTERED"
             if response.status_code == 401:
-                # Token might be expired, try to re-register
                 return False
         except Exception as e:
             self.logger.debug(f"Heartbeat failed: {e}")
@@ -127,8 +129,10 @@ class FIMConfig:
                 error_data = response.json()
                 self.logger.warning(f"Event rejected by server: {error_data.get('error')}")
                 return False
+            elif response.status_code == 403:
+                self.logger.error("Event rejected: Machine is deregistered")
+                return "DEREGISTERED"
             elif response.status_code == 401:
-                # Token might be expired
                 return False
             else:
                 self.logger.warning(f"Failed to report event: {response.status_code}")
