@@ -158,6 +158,9 @@ class FIMConfig:
             if response.status_code == 200:
                 self.logger.info("Initial baseline saved to server")
                 return True
+            elif response.status_code == 403:
+                self.logger.error("Failed to save baseline: Machine is deregistered")
+                return "DEREGISTERED"
             else:
                 self.logger.warning(f"Failed to save baseline: {response.status_code}")
                 return False

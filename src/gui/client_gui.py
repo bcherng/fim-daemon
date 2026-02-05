@@ -228,7 +228,9 @@ class FIMClientGUI:
                         'root_hash': old_root_hash,
                         'timestamp': datetime.now().isoformat()
                     }
-                    self.config.report_event(unselect_event)
+                    if self.config.report_event(unselect_event) == "DEREGISTERED":
+                        self.handle_deregistration()
+                        return
 
                     # 3. Initial scan for NEW directory
                     from core.fim import FIMDaemon
@@ -245,7 +247,9 @@ class FIMClientGUI:
                         'root_hash': new_root_hash,
                         'timestamp': datetime.now().isoformat()
                     }
-                    self.config.report_event(select_event)
+                    if self.config.report_event(select_event) == "DEREGISTERED":
+                        self.handle_deregistration()
+                        return
                     
                     # 5. Update state and restart monitoring
                     self.state.update_last_valid_hash(new_root_hash, {'timestamp': datetime.now().isoformat(), 'accepted': True})
