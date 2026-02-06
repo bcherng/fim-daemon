@@ -9,7 +9,7 @@ from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from core.fim import FIMDaemon
+from core.tree_builder import build_initial_tree
 from core.event_handler import FIMEventHandler
 from core.utils import ensure_directory
 
@@ -64,10 +64,10 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_ev
             })
             time.sleep(wait_time)
     
+    
     # Build initial tree
     ensure_directory(watch_dir)
-    daemon = FIMDaemon(config)
-    tree, files = daemon.build_initial_tree(watch_dir)
+    tree, files = build_initial_tree(watch_dir)
     
     # Create event handler
     event_handler = FIMEventHandler(tree, files, config, state, conn_mgr, gui_queue)

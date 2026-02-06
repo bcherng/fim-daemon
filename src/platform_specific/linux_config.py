@@ -8,7 +8,7 @@ import hashlib
 import platform
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'core'))
-from core.fim import FIMConfig
+from core.config import FIMConfig
 from core.utils import ensure_directory
 
 

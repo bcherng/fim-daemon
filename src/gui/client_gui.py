@@ -29,12 +29,11 @@ class FIMClientGUI:
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
-        # CRITICAL FIX: Clear stale deregistered state if no valid JWT exists
-        # This handles fresh installs where a previous state file may have is_deregistered=true
-        if self.state.is_deregistered() and not self.state.get_jwt():
-            self.state.set_deregistered(False)
+        if not self.state.get_jwt():
+            if self.state.is_deregistered():
+                self.state.set_deregistered(False)
+            self.state.set_watch_directory(None)
         
-        # Check if deregistered
         if self.state.is_deregistered():
             self.handle_deregistration("This machine has been deregistered.")
         elif not self.state.get_watch_directory():
@@ -232,44 +231,11 @@ class FIMClientGUI:
                         "warning"
                     )
                     
-                    # 1. Stop current monitoring
+                    # Stop current monitoring and update state
                     self.stop_monitoring()
-
-                    # 2. Report Directory Unselected (Old Path)
-                    old_root_hash = self.state.get_last_valid_hash()
-                    unselect_event = {
-                        'id': f"{self.config.host_id}-unselect-{int(time.time()*1000)}",
-                        'client_id': self.config.host_id,
-                        'event_type': 'directory_unselected',
-                        'file_path': old_dir,
-                        'root_hash': old_root_hash,
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    if self.config.report_event(unselect_event) == "DEREGISTERED":
-                        self.handle_deregistration()
-                        return
-
-                    # 3. Initial scan for NEW directory
-                    from core.fim import FIMDaemon
-                    temp_daemon = FIMDaemon(self.config)
-                    new_tree, new_files = temp_daemon.build_initial_tree(directory)
-                    new_root_hash = new_tree[0][0].hex() if new_tree else None
-
-                    # 4. Report Directory Selected (New Path)
-                    select_event = {
-                        'id': f"{self.config.host_id}-select-{int(time.time()*1000)}",
-                        'client_id': self.config.host_id,
-                        'event_type': 'directory_selected',
-                        'file_path': directory,
-                        'root_hash': new_root_hash,
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    if self.config.report_event(select_event) == "DEREGISTERED":
-                        self.handle_deregistration()
-                        return
                     
-                    # 5. Update state and restart monitoring
-                    self.state.update_last_valid_hash(new_root_hash, {'timestamp': datetime.now().isoformat(), 'accepted': True})
+                    # Update state with new directory
+                    self.state.update_last_valid_hash(None, {'timestamp': datetime.now().isoformat(), 'accepted': True})
                     self.set_monitoring_directory(directory)
             else:
                 messagebox.showerror("Authentication Failed", "Invalid credentials")
