@@ -55,7 +55,7 @@ def test_interaction():
         'root_hash': 'initial-root-hash',
         'file_count': 10
     }
-    res = requests.post(f"{SERVER_URL}/api/baselines/save", headers=headers, json=baseline_data)
+    res = requests.post(f"{SERVER_URL}/api/clients/baseline", headers=headers, json=baseline_data)
     if res.status_code == 200:
         print("SUCCESS: Baseline saved.")
     else:

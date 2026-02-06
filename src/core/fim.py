@@ -144,7 +144,7 @@ class FIMConfig:
         """Save initial baseline to server"""
         try:
             response = requests.post(
-                f"{self.server_url}/api/baselines/save",
+                f"{self.server_url}/api/clients/baseline",
                 headers={
                     'Authorization': f'Bearer {self.daemon_token}'
                 },
