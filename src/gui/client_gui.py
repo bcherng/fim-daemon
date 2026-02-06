@@ -5,6 +5,7 @@ FIM Client GUI
 import os
 import queue
 import threading
+import uuid
 from datetime import datetime
 
 import tkinter as tk
@@ -254,11 +255,15 @@ class FIMClientGUI:
                     # Queue directory_unselected event for OLD directory
                     if old_dir:
                         self.state.enqueue_event({
+                            'id': f"{self.config.host_id}-gui-{uuid.uuid4().hex[:8]}",
+                            'client_id': self.config.host_id,
                             'event_type': 'directory_unselected',
                             'file_path': old_dir,
                             'old_hash': old_hash, # Current valid hash
                             'new_hash': old_hash, # No change to content
                             'root_hash': old_hash,
+                            'last_valid_hash': old_hash,
+                            'merkle_proof': None, # Not applicable for root lifecycle events
                             'timestamp': datetime.now().isoformat()
                         })
                     
@@ -276,11 +281,14 @@ class FIMClientGUI:
 
                     # Queue directory_selected event for NEW directory
                     self.state.enqueue_event({
+                        'id': f"{self.config.host_id}-gui-{uuid.uuid4().hex[:8]}",
+                        'client_id': self.config.host_id,
                         'event_type': 'directory_selected',
                         'file_path': directory,
-                        'old_hash': None,
+                        'old_hash': new_root_hash, # User requested old_hash to match new_hash for new baseline
                         'new_hash': new_root_hash,
                         'root_hash': new_root_hash,
+                        'merkle_proof': None, # Not applicable for root lifecycle events
                         'timestamp': datetime.now().isoformat()
                     })
                     
