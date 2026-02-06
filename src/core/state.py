@@ -96,14 +96,16 @@ class FIMState:
                 return event
             return None
     
-    def update_queued_events_base(self, new_base_hash):
-        """Update all events in the queue to use a new last_valid_hash"""
+    def update_queued_events_base(self, new_hash):
+        """Update last_valid_hash for queued events to maintain chain"""
         with self.lock:
+            first = True
             for event in self.state['event_queue']:
-                if event.get('event_type') == 'directory_selected':
+                if not first and event.get('event_type') == 'directory_selected':
                     # Stop updating as this event starts a new chain
                     break
-                event['last_valid_hash'] = new_base_hash
+                event['last_valid_hash'] = new_hash
+                first = False
             self.save()
     
     def get_queue_size(self):
