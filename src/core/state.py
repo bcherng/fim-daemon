@@ -100,6 +100,9 @@ class FIMState:
         """Update all events in the queue to use a new last_valid_hash"""
         with self.lock:
             for event in self.state['event_queue']:
+                if event.get('event_type') == 'directory_selected':
+                    # Stop updating as this event starts a new chain
+                    break
                 event['last_valid_hash'] = new_base_hash
             self.save()
     

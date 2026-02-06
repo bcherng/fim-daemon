@@ -9,6 +9,7 @@ from datetime import datetime
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox
+from core.tree_builder import build_initial_tree
 
 
 class FIMClientGUI:
@@ -129,6 +130,23 @@ class FIMClientGUI:
         if result:
             directory = filedialog.askdirectory(title="Select Directory to Monitor")
             if directory:
+                # Calculate initial hash and queue directory_selected event
+                try:
+                    tree, _ = build_initial_tree(directory)
+                    root_hash = tree[0][0].hex() if tree else None
+                    
+                    self.state.enqueue_event({
+                        'event_type': 'directory_selected',
+                        'file_path': directory,
+                        'root_hash': root_hash,
+                        'new_hash': root_hash,
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    
+                    self.state.update_last_valid_hash(root_hash, {'timestamp': datetime.now().isoformat(), 'accepted': True})
+                except Exception as e:
+                    self.log_message(f"Error building tree: {e}", "error")
+                
                 self.set_monitoring_directory(directory)
             else:
                 messagebox.showwarning("No Directory", "No directory selected. You can set it later.")
@@ -205,6 +223,8 @@ class FIMClientGUI:
                 )
                 if directory:
                     old_dir = self.state.get_watch_directory()
+                    old_hash = self.state.get_last_valid_hash()
+                    
                     self.add_log(
                         datetime.now().isoformat(),
                         "═══ DIRECTORY CHANGED ═══",
@@ -231,11 +251,41 @@ class FIMClientGUI:
                         "warning"
                     )
                     
-                    # Stop current monitoring and update state
+                    # Queue directory_unselected event for OLD directory
+                    if old_dir:
+                        self.state.enqueue_event({
+                            'event_type': 'directory_unselected',
+                            'file_path': old_dir,
+                            'old_hash': old_hash, # Current valid hash
+                            'new_hash': old_hash, # No change to content
+                            'root_hash': old_hash,
+                            'timestamp': datetime.now().isoformat()
+                        })
+                    
+                    # Stop current monitoring
                     self.stop_monitoring()
                     
-                    # Update state with new directory
-                    self.state.update_last_valid_hash(None, {'timestamp': datetime.now().isoformat(), 'accepted': True})
+                    # Calculate initial hash for NEW directory
+                    # This allows us to send the correct 'directory_selected' event immediately
+                    try:
+                        new_tree, _ = build_initial_tree(directory)
+                        new_root_hash = new_tree[0][0].hex() if new_tree else None
+                    except Exception as e:
+                        self.log_message(f"Error building tree: {e}", "error")
+                        new_root_hash = None
+
+                    # Queue directory_selected event for NEW directory
+                    self.state.enqueue_event({
+                        'event_type': 'directory_selected',
+                        'file_path': directory,
+                        'old_hash': None,
+                        'new_hash': new_root_hash,
+                        'root_hash': new_root_hash,
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    
+                    # Update state with new directory and hash
+                    self.state.update_last_valid_hash(new_root_hash, {'timestamp': datetime.now().isoformat(), 'accepted': True})
                     self.set_monitoring_directory(directory)
             else:
                 messagebox.showerror("Authentication Failed", "Invalid credentials")
