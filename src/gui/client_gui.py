@@ -29,6 +29,11 @@ class FIMClientGUI:
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
+        # CRITICAL FIX: Clear stale deregistered state if no valid JWT exists
+        # This handles fresh installs where a previous state file may have is_deregistered=true
+        if self.state.is_deregistered() and not self.state.get_jwt():
+            self.state.set_deregistered(False)
+        
         # Check if deregistered
         if self.state.is_deregistered():
             self.handle_deregistration("This machine has been deregistered.")
