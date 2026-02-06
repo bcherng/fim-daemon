@@ -65,11 +65,12 @@ class FIMClientGUI:
         self.dir_label = ttk.Label(dir_frame, text="Not set", font=("Courier", 9))
         self.dir_label.pack(side=tk.LEFT, padx=5)
         
-        ttk.Button(
+        self.change_dir_btn = ttk.Button(
             dir_frame, 
             text="Change Directory", 
             command=self.change_directory
-        ).pack(side=tk.RIGHT)
+        )
+        self.change_dir_btn.pack(side=tk.RIGHT)
         
         # Stats bar
         stats_frame = ttk.Frame(self.root)
@@ -112,6 +113,9 @@ class FIMClientGUI:
     
     def prompt_directory_selection(self):
         """Show directory selection dialog on first run"""
+        if self.state.is_deregistered():
+            return
+            
         result = messagebox.askyesno(
             "Select Monitoring Directory",
             "Would you like to select a directory to monitor?\n\n"
@@ -141,6 +145,10 @@ class FIMClientGUI:
         self.add_log(datetime.now().isoformat(), "═══ DIRECTORY CHANGE ═══", "info")
         
         # Restart monitoring if already running
+        if self.state.is_deregistered():
+            self.add_log(datetime.now().isoformat(), "Machine is deregistered. Monitoring will not start.", "error")
+            return
+
         if self.daemon_thread and self.daemon_thread.is_alive():
             self.add_log(datetime.now().isoformat(), "Restarting monitoring...", "warning")
             self.stop_monitoring()
@@ -157,6 +165,10 @@ class FIMClientGUI:
     
     def change_directory(self):
         """Change monitoring directory with admin verification"""
+        if self.state.is_deregistered():
+            messagebox.showwarning("Warning", "Machine is deregistered. Please reregister before changing the directory.")
+            return
+            
         # Create admin login dialog
         dialog = tk.Toplevel(self.root)
         dialog.title("Admin Verification Required")
@@ -265,6 +277,10 @@ class FIMClientGUI:
     
     def start_monitoring(self):
         """Start the monitoring daemon"""
+        if self.state.is_deregistered():
+            self.add_log(datetime.now().isoformat(), "Cannot start monitoring: Machine is deregistered", "error")
+            return
+            
         if self.daemon_thread and self.daemon_thread.is_alive():
             return
         
@@ -345,6 +361,10 @@ class FIMClientGUI:
         
         self.add_log(datetime.now().isoformat(), f"⚠ DEREGISTERED: {message}", "error")
         self.status_label.config(text="● Deregistered", foreground="orange")
+        
+        # Disable main UI actions
+        if hasattr(self, 'change_dir_btn'):
+            self.change_dir_btn.config(state='disabled')
         
         # Stop monitoring
         self.state.set_deregistered(True)
@@ -461,8 +481,13 @@ class FIMClientGUI:
                 self.state.set_jwt(data['token'], data.get('expires_in', 30 * 24 * 60 * 60))
                 self.state.set_deregistered(False)
                 self.add_log(datetime.now().isoformat(), "✓ Reregistered successfully", "success")
+                if hasattr(self, 'change_dir_btn'):
+                    self.change_dir_btn.config(state='normal')
                 if hasattr(self, 'deregistration_handled'):
                     delattr(self, 'deregistration_handled')
+                
+                # Automatically start monitoring after reregistration
+                self.start_monitoring()
                 return True
             else:
                 error = response.json().get('error', 'Unknown error')
