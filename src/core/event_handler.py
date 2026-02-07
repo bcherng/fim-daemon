@@ -117,6 +117,7 @@ class FIMEventHandler:
             
             if response.status_code == 200:
                 data = response.json()
+                self.gui_queue.put({'type': 'status', 'connected': True})
                 return {
                     'success': True,
                     'event_id': data['event_id'],
@@ -173,7 +174,10 @@ class FIMEventHandler:
                 },
                 timeout=5
             )
-            return response.status_code == 200
+            if response.status_code == 200:
+                self.gui_queue.put({'type': 'status', 'connected': True})
+                return True
+            return False
         except:
             return False
     
@@ -284,6 +288,7 @@ class FIMEventHandler:
                     f"✓ Heartbeat (files: {len(self.files)}, pending: {self.state.get_queue_size()})", 
                     "success"
                 )
+                self.gui_queue.put({'type': 'status', 'connected': True})
                 return True
             elif response.status_code == 403:
                 # Check for deregistration

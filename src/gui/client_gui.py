@@ -133,14 +133,16 @@ class FIMClientGUI:
             if directory:
                 # Calculate initial hash and queue directory_selected event
                 try:
-                    tree, _ = build_initial_tree(directory)
+                    tree, files = build_initial_tree(directory)
                     root_hash = tree[0][0].hex() if tree else None
+                    file_count = len(files) if files else 0
                     
                     self.state.enqueue_event({
                         'event_type': 'directory_selected',
                         'file_path': directory,
                         'root_hash': root_hash,
                         'new_hash': root_hash,
+                        'file_count': file_count,
                         'timestamp': datetime.now().isoformat()
                     })
                     
@@ -273,11 +275,13 @@ class FIMClientGUI:
                     # Calculate initial hash for NEW directory
                     # This allows us to send the correct 'directory_selected' event immediately
                     try:
-                        new_tree, _ = build_initial_tree(directory)
+                        new_tree, files = build_initial_tree(directory)
                         new_root_hash = new_tree[0][0].hex() if new_tree else None
+                        file_count = len(files) if files else 0
                     except Exception as e:
                         self.log_message(f"Error building tree: {e}", "error")
                         new_root_hash = None
+                        file_count = 0
 
                     # Queue directory_selected event for NEW directory
                     self.state.enqueue_event({
@@ -289,6 +293,7 @@ class FIMClientGUI:
                         'new_hash': new_root_hash,
                         'root_hash': new_root_hash,
                         'merkle_proof': None, # Not applicable for root lifecycle events
+                        'file_count': file_count,
                         'timestamp': datetime.now().isoformat()
                     })
                     
