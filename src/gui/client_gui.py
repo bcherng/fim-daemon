@@ -200,6 +200,11 @@ class FIMClientGUI:
                 )
                 if directory:
                     old_dir = self.state.get_watch_directory()
+                    
+                    if directory == old_dir:
+                        self.add_log(datetime.now().isoformat(), "Selected directory is already being monitored.", "info")
+                        return
+
                     old_hash = self.state.get_last_valid_hash()
                     
                     # IPC call to elevated admin daemon to change system config
@@ -210,31 +215,11 @@ class FIMClientGUI:
                         messagebox.showerror("Error", f"Admin daemon failed: {response.get('error')}")
                         return
                     
-                    self.add_log(
-                        datetime.now().isoformat(),
-                        "═══ DIRECTORY CHANGED ═══",
-                        "warning"
-                    )
-                    self.add_log(
-                        datetime.now().isoformat(),
-                        f"Old: {old_dir}",
-                        "info"
-                    )
-                    self.add_log(
-                        datetime.now().isoformat(),
-                        f"New: {directory}",
-                        "info"
-                    )
-                    self.add_log(
-                        datetime.now().isoformat(),
-                        f"Changed by: {username}",
-                        "info"
-                    )
-                    self.add_log(
-                        datetime.now().isoformat(),
-                        "═══════════════════════════",
-                        "warning"
-                    )
+                    self.add_log(datetime.now().isoformat(), "═══ DIRECTORY CHANGED ═══", "warning")
+                    self.add_log(datetime.now().isoformat(), f"Old: {old_dir}", "info")
+                    self.add_log(datetime.now().isoformat(), f"New: {directory}", "info")
+                    self.add_log(datetime.now().isoformat(), f"Changed by: {username}", "info")
+                    self.add_log(datetime.now().isoformat(), "═══════════════════════════", "warning")
                     
                     # Queue directory_unselected event for OLD directory
                     if old_dir:
@@ -255,13 +240,12 @@ class FIMClientGUI:
                     self.stop_monitoring()
                     
                     # Calculate initial hash for NEW directory
-                    # This allows us to send the correct 'directory_selected' event immediately
                     try:
                         new_tree, files = build_initial_tree(directory)
                         new_root_hash = new_tree[0][0].hex() if new_tree else None
                         file_count = len(files) if files else 0
                     except Exception as e:
-                        self.log_message(f"Error building tree: {e}", "error")
+                        self.add_log(datetime.now().isoformat(), f"Error building tree: {e}", "error")
                         new_root_hash = None
                         file_count = 0
 
@@ -271,16 +255,17 @@ class FIMClientGUI:
                         'client_id': self.config.host_id,
                         'event_type': 'directory_selected',
                         'file_path': directory,
-                        'old_hash': new_root_hash, # User requested old_hash to match new_hash for new baseline
+                        'old_hash': new_root_hash,
                         'new_hash': new_root_hash,
                         'root_hash': new_root_hash,
-                        'merkle_proof': None, # Not applicable for root lifecycle events
+                        'last_valid_hash': old_hash, # Chain to old state
+                        'merkle_proof': None,
                         'file_count': file_count,
                         'timestamp': datetime.now().isoformat()
                     })
                     
-                    # Update state with new directory and hash
-                    self.state.update_last_valid_hash(new_root_hash, {'timestamp': datetime.now().isoformat(), 'accepted': True})
+                    # TRIGGER monitoring start but DO NOT update last_valid_hash here.
+                    # It will be updated automatically in queue_manager when the server acknowledges.
                     self.set_monitoring_directory(directory)
             else:
                 messagebox.showerror("Authentication Failed", "Invalid credentials")

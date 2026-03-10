@@ -67,7 +67,10 @@ class EventQueueManager:
                     
                     if result.get('rejected'):
                         self.log_to_gui(f"Event rejected: {result.get('reason')}", "error")
+                        # We stop processing the queue because subsequent events will likely fail 
+                        # due to hash chaining dependencies.
                         self.state.dequeue_event()
+                        break
                     else:
                         self.log_to_gui("⚠ Connection lost, will retry", "warning")
                         self.connection_mgr.mark_disconnected()

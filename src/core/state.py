@@ -93,12 +93,16 @@ class FIMState:
         with self.lock:
             event['queued_at'] = datetime.now().isoformat()
             
+            # Ensure last_valid_hash is present if not provided
+            if event.get('last_valid_hash') is None:
+                event['last_valid_hash'] = self.get_last_valid_hash()
+
             # Determine prev_event_hash for the chain
             prev_event_hash = None
             if self.state['event_queue']:
                 prev_event_hash = self.state['event_queue'][-1].get('event_hash')
             else:
-                prev_event_hash = self.state.get('last_valid_hash')
+                prev_event_hash = self.get_last_valid_hash()
                 
             event['prev_event_hash'] = prev_event_hash
             
@@ -106,9 +110,9 @@ class FIMState:
             import hashlib
             hasher = hashlib.sha256()
             hasher.update(str(event.get('id', '')).encode())
-            hasher.update(str(event.get('prev_event_hash', '')).encode())
-            hasher.update(str(event.get('last_valid_hash', '')).encode())
-            hasher.update(str(event.get('new_hash', '')).encode())
+            hasher.update(str(event.get('prev_event_hash') or '').encode())
+            hasher.update(str(event.get('last_valid_hash') or '').encode())
+            hasher.update(str(event.get('new_hash') or '').encode())
             event['event_hash'] = hasher.hexdigest()
             
             # Sign event if possible
