@@ -57,7 +57,10 @@ def send_admin_request(action, token, payload=None, timeout=5.0):
         return response
         
     except FileNotFoundError:
-        return {"success": False, "error": "Admin daemon is not running. IPC socket not found."}
+        return {"success": False, "error": "Admin daemon is not running (IPC pipe not found)."}
+    except ConnectionRefusedError:
+        return {"success": False, "error": "Admin daemon connection refused."}
     except Exception as e:
-        return {"success": False, "error": f"IPC connection error: {e}"}
+        import traceback
+        return {"success": False, "error": f"IPC connection error: {str(e)}", "traceback": traceback.format_exc()}
 

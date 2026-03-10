@@ -104,7 +104,7 @@ class WindowsHardwareIdentifier:
 class WindowsFIMConfig(FIMConfig):
     """Windows-specific FIM configuration"""
     
-    def __init__(self):
+    def __init__(self, skip_logging=False):
         super().__init__(
             platform_type="windows",
             watch_dir=None,  # Set by user
@@ -125,11 +125,12 @@ class WindowsFIMConfig(FIMConfig):
         except Exception:
             pass
         
-        # Setup logging
-        log_dir = os.path.expandvars(r'%APPDATA%\FIMClient\logs')
-        ensure_directory(log_dir)
-        log_file = os.path.join(log_dir, 'fim-client.log')
-        self.setup_logging(log_file)
+        # Setup logging if not skipped
+        if not skip_logging:
+            log_dir = os.path.expandvars(r'%APPDATA%\FIMClient\logs')
+            ensure_directory(log_dir)
+            log_file = os.path.join(log_dir, 'fim-client.log')
+            self.setup_logging(log_file)
         
         # Register with server (will be called by connection manager)
         # self.register_with_server(self.host_id, self.hardware_info)

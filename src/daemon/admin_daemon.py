@@ -16,11 +16,11 @@ from multiprocessing.connection import Listener
 # Add core to path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
 
-def get_config():
+def get_config(skip_logging=True):
     """Get platform-specific configuration"""
     if sys.platform == 'win32':
         from platform_specific.windows_config import WindowsFIMConfig
-        return WindowsFIMConfig()
+        return WindowsFIMConfig(skip_logging=skip_logging)
     else:
         from platform_specific.linux_config import LinuxFIMConfig
         return LinuxFIMConfig()
@@ -45,24 +45,34 @@ class FIMAdminDaemon:
         self.running = True
 
     def setup_logging(self):
-        log_dir = os.path.dirname(self.config.pid_file) if self.config.pid_file else '/tmp'
         if sys.platform == 'win32':
+            # Use ProgramData for system-wide logs
             log_dir = os.path.join(os.environ.get('PROGRAMDATA', 'C:\\ProgramData'), 'FIMClient', 'logs')
         else:
             log_dir = '/var/log/fim-client'
             
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, 'admin_daemon.log')
-        
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - AdminDaemon - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler(sys.stdout)
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = os.path.join(log_dir, 'admin_daemon.log')
+            
+            # Setup handlers - avoid StreamHandler if stdout is missing (e.g. in a Windows service)
+            handlers = [logging.FileHandler(log_file)]
+            if sys.stdout is not None:
+                handlers.append(logging.StreamHandler(sys.stdout))
+                
+            # Use a fresh logger or force basicConfig if needed
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - AdminDaemon - %(levelname)s - %(message)s',
+                handlers=handlers,
+                force=True  # Clear any previous config from WindowsFIMConfig
+            )
+            self.logger = logging.getLogger(__name__)
+            self.logger.info("Admin logging initialized successfully")
+        except Exception as e:
+            # Fallback for critical failure
+            print(f"CRITICAL: Failed to setup logging: {e}")
+            self.logger = logging.getLogger(__name__)
 
     def verify_action_token(self, token, action):
         """Verify the short-lived action token with the FIM Server"""
