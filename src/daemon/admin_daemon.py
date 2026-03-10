@@ -20,6 +20,9 @@ if sys.platform == 'win32':
         import win32service
         import win32event
         import servicemanager
+        import win32pipe
+        import win32file
+        import win32security
     except ImportError:
         pass
 
@@ -78,25 +81,19 @@ if sys.platform == 'win32':
 
         def accept(self):
             import win32pipe
-            from multiprocessing.connection import Connection
             
             # This blocks until a client connects
             win32pipe.ConnectNamedPipe(self._pipe_handle, None)
             
             with self._lock:
                 # Detach the handle so it's not closed when we reassign self._pipe_handle
-                # We cast to int for the Connection object
-                try:
-                    handle = int(self._pipe_handle.Detach())
-                except:
-                    handle = int(self._pipe_handle)
-                
-                conn = Connection(handle)
+                # We return the raw handle (int) to avoid multiprocessing.Connection issues
+                handle = self._pipe_handle.Detach()
                 
                 # Prepare for the next client connection
                 self._next_pipe()
                 
-                return conn
+                return int(handle)
 
 class FIMAdminDaemon:
     
@@ -212,21 +209,33 @@ class FIMAdminDaemon:
 
     def handle_client(self, conn, addr=None):
         try:
-            # Distinguish between multiprocessing.connection.Connection and raw socket
-            # multiprocessing Connection has 'recv' and 'send' but doesn't take bufsize for recv
-            # We check the module/name to be robust across different Python versions/platforms
-            conn_type = type(conn).__name__
-            
-            if 'Connection' in conn_type:
-                request = conn.recv()
-                self.logger.info(f"Received IPC Connection request from {addr if addr else 'client'}")
-            else:
-                # Raw socket (Linux)
-                data = conn.recv(8192)
+            # On Windows, conn is a raw handle (int)
+            if sys.platform == 'win32' and isinstance(conn, int):
+                import win32file
+                import win32pipe
+                
+                # Use raw byte read/write to avoid multiprocessing.connection socket errors
+                self.logger.info("Handling Windows raw pipe client")
+                # hr, data = win32file.ReadFile(conn, 65536)
+                # ReadFile can be tricky with chunks, but for our JSON small payloads it's fine once
+                # Alternatively we can use a loop or just trust the 64KB buffer
+                _, data = win32file.ReadFile(conn, 65536)
                 if not data:
                     return
                 request = json.loads(data.decode('utf-8'))
-                self.logger.info(f"Received IPC socket request from {addr}")
+            elif hasattr(conn, 'recv'):
+                # multiprocessing.connection or raw socket (Linux)
+                if type(conn).__name__ == 'Connection':
+                    request = conn.recv()
+                else:
+                    data = conn.recv(8192)
+                    if not data:
+                        return
+                    request = json.loads(data.decode('utf-8'))
+                self.logger.info(f"Received IPC request from {addr if addr else 'client'}")
+            else:
+                self.logger.error(f"Unknown connection type: {type(conn)}")
+                return
                 
             action = request.get('action')
             token = request.get('token')
@@ -246,23 +255,34 @@ class FIMAdminDaemon:
                     else:
                         response = {"success": False, "error": f"Unknown action: {action}"}
                         
-            if hasattr(conn, 'send'):
-                conn.send(response)
-            else:
-                conn.sendall((json.dumps(response) + '\n').encode('utf-8'))
+            # Provide response back
+            if sys.platform == 'win32' and isinstance(conn, int):
+                win32file.WriteFile(conn, json.dumps(response).encode('utf-8'))
+                win32pipe.DisconnectNamedPipe(conn)
+                win32file.CloseHandle(conn)
+            elif hasattr(conn, 'send'):
+                if type(conn).__name__ == 'Connection':
+                    conn.send(response)
+                else:
+                    conn.sendall((json.dumps(response) + '\n').encode('utf-8'))
+                conn.close()
                 
         except Exception as e:
             self.logger.error(f"Error handling IPC client: {e}")
             try:
                 err_resp = {"success": False, "error": "Internal daemon error"}
-                if hasattr(conn, 'send'):
-                    conn.send(err_resp)
-                else:
-                    conn.sendall((json.dumps(err_resp) + '\n').encode('utf-8'))
+                if sys.platform == 'win32' and isinstance(conn, int):
+                    win32file.WriteFile(conn, json.dumps(err_resp).encode('utf-8'))
+                    win32pipe.DisconnectNamedPipe(conn)
+                    win32file.CloseHandle(conn)
+                elif hasattr(conn, 'send'):
+                    if type(conn).__name__ == 'Connection':
+                        conn.send(err_resp)
+                    else:
+                        conn.sendall((json.dumps(err_resp) + '\n').encode('utf-8'))
+                    conn.close()
             except:
                 pass
-        finally:
-            conn.close()
 
     def stop(self):
         self.running = False

@@ -21,60 +21,58 @@ def send_admin_request(action, token, payload=None, timeout=5.0):
     address = get_ipc_address()
     
     try:
-        # Use sockets directly to allow robust timeout handling
-        if sys.platform == 'win32':
-            # On Windows we use raw pipe connection to match our custom listener
-            # This bypasses the multiprocessing handshake which we don't need locally
-            import win32file
-            from multiprocessing.connection import Connection
-            
-            handle = win32file.CreateFile(
-                address,
-                win32file.GENERIC_READ | win32file.GENERIC_WRITE,
-                0, None,
-                win32file.OPEN_EXISTING,
-                0, None
-            )
-            # Detach the handle so it's not closed when the PyHANDLE object is garbage collected
-            handle_int = int(handle.Detach())
-            conn = Connection(handle_int)
-        else:
-            # Unix socket
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(timeout)
-            sock.connect(address)
-            conn = sock
-
         request_data = {
             "action": action,
             "token": token,
             "payload": payload or {}
         }
-        
+
         if sys.platform == 'win32':
-            conn.send(request_data)
-            # Skip poll for now to keep it simple, or use a shorter poll
-            if conn.poll(timeout):
-                response = conn.recv()
-            else:
-                response = {"success": False, "error": "IPC timeout"}
-            conn.close()
-        else:
-            conn.sendall((json.dumps(request_data) + '\n').encode('utf-8'))
-            response_bytes = conn.recv(4096)
-            conn.close()
-            if not response_bytes:
-                response = {"success": False, "error": "Empty response"}
-            else:
-                response = json.loads(response_bytes.decode('utf-8'))
+            # On Windows we use win32pipe.CallNamedPipe for a clean request-response
+            # This avoids multiprocessing.connection's socket-related errors on Windows
+            import win32pipe
+            import win32file
+            
+            try:
+                # CallNamedPipe connects, writes, reads, and closes in one go
+                response_bytes = win32pipe.CallNamedPipe(
+                    address,
+                    json.dumps(request_data).encode('utf-8'),
+                    65536,
+                    int(timeout * 1000)
+                )
                 
-        return response
+                if not response_bytes:
+                    return {"success": False, "error": "Empty response from admin daemon"}
+                
+                return json.loads(response_bytes.decode('utf-8'))
+            except Exception as pipe_err:
+                # Check for common pipe errors
+                error_str = str(pipe_err)
+                if "2" in error_str:
+                    return {"success": False, "error": "Admin daemon is not running (pipe not found). [BUILD_REF_V7]"}
+                elif "5" in error_str:
+                    return {"success": False, "error": "Access denied to admin pipe. [BUILD_REF_V7]"}
+                raise
+        else:
+            # Unix socket (Linux)
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            sock.connect(address)
+            
+            sock.sendall((json.dumps(request_data) + '\n').encode('utf-8'))
+            response_bytes = sock.recv(4096)
+            sock.close()
+            
+            if not response_bytes:
+                return {"success": False, "error": "Empty response from admin daemon"}
+            
+            return json.loads(response_bytes.decode('utf-8'))
         
     except FileNotFoundError:
-        return {"success": False, "error": "Admin daemon is not running (IPC pipe not found). [BUILD_REF_V6]"}
+        return {"success": False, "error": "Admin daemon is not running (IPC pipe not found). [BUILD_REF_V7]"}
     except ConnectionRefusedError:
         return {"success": False, "error": "Admin daemon connection refused."}
     except Exception as e:
         import traceback
         return {"success": False, "error": f"IPC connection error: {str(e)}", "traceback": traceback.format_exc()}
-
