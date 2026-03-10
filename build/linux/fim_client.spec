@@ -2,7 +2,7 @@
 
 import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_all
 
 block_cipher = None
 
@@ -20,16 +20,6 @@ hidden_imports = [
     'bcrypt',
     'cffi',
     '_cffi_backend',
-    'cryptography',
-    'cryptography.hazmat',
-    'cryptography.hazmat.primitives',
-    'cryptography.hazmat.primitives.asymmetric',
-    'cryptography.hazmat.primitives.asymmetric.rsa',
-    'cryptography.hazmat.primitives.asymmetric.padding',
-    'cryptography.hazmat.primitives.hashes',
-    'cryptography.hazmat.primitives.serialization',
-    'cryptography.hazmat.backends',
-    'cryptography.hazmat.backends.openssl',
 ]
 
 # Collect all submodules from core, gui, daemon, platform_specific
@@ -38,13 +28,22 @@ hidden_imports.extend(collect_submodules('gui'))
 hidden_imports.extend(collect_submodules('daemon'))
 hidden_imports.extend(collect_submodules('platform_specific'))
 
+# collect_all properly bundles C extension binaries for cryptography, bcrypt, cffi
+crypto_hiddenimports, crypto_binaries, crypto_datas = collect_all('cryptography')
+bcrypt_hiddenimports, bcrypt_binaries, bcrypt_datas = collect_all('bcrypt')
+cffi_hiddenimports, cffi_binaries, cffi_datas = collect_all('cffi')
+hidden_imports.extend(crypto_hiddenimports)
+hidden_imports.extend(bcrypt_hiddenimports)
+hidden_imports.extend(cffi_hiddenimports)
+
 # Data files to include
-datas = []
+datas = crypto_datas + bcrypt_datas + cffi_datas
+binaries = crypto_binaries + bcrypt_binaries + cffi_binaries
 
 a_client = Analysis(
     ['../../fim_client.py'],
     pathex=['../../src'],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
@@ -80,7 +79,7 @@ exe_client = EXE(
 a_admin = Analysis(
     ['../../src/daemon/admin_daemon.py'],
     pathex=['../../src'],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
