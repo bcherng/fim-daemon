@@ -6,7 +6,7 @@ import time
 import requests
 
 
-class ConnectionManager:
+class RegistrationClient:
     """Manages server connection with exponential backoff"""
     
     def __init__(self, config, state, max_backoff=600):
@@ -17,6 +17,20 @@ class ConnectionManager:
         self.connected = False
         self.last_attempt = 0
     
+    def get_auth_headers(self):
+        """Get authentication headers using device signature"""
+        headers = {
+            'X-Client-ID': self.config.host_id,
+            'X-Timestamp': str(int(time.time() * 1000))
+        }
+        
+        if hasattr(self.state, 'device_signer') and self.state.device_signer:
+            signature = self.state.device_signer.sign_payload(f"{headers['X-Timestamp']}.{self.config.host_id}")
+            if signature:
+                headers['X-Signature'] = signature
+                
+        return headers
+
     def attempt_connection(self):
         """Attempt to connect to server with exponential backoff"""
         current_time = time.time()
@@ -27,15 +41,12 @@ class ConnectionManager:
         
         self.last_attempt = current_time
         
-        # Try to get JWT from state or register
-        token = self.state.get_jwt()
-        if token:
-            self.config.daemon_token = token
-            if self.verify_token():
-                self.connected = True
-                self.current_backoff = 1
-                return True
-        
+        # Try to verify registration with server
+        if self.verify_registration():
+            self.connected = True
+            self.current_backoff = 1
+            return True
+            
         # Need to register
         if self.register_client():
             self.connected = True
@@ -45,13 +56,25 @@ class ConnectionManager:
         # Increase backoff on failure
         self.current_backoff = min(self.current_backoff * 2, self.max_backoff)
         return False
+        
+        # Increase backoff on failure
+        self.current_backoff = min(self.current_backoff * 2, self.max_backoff)
+        return False
     
-    def verify_token(self):
-        """Quick token verification"""
+    def verify_registration(self):
+        """Verify client is registered using device signature"""
         try:
+            response = requests.get(
+                f"{self.config.server_url}/api/health",
+                headers=self.get_auth_headers(),
+                timeout=5
+            )
+            
+            # Health is unauthenticated, but we can hit verify or just rely on heartbeat later.
+            # Wait, let's actually hit a daemon-authenticated endpoint to prove registration
             response = requests.post(
                 f"{self.config.server_url}/api/clients/verify",
-                headers={'Authorization': f'Bearer {self.config.daemon_token}'},
+                headers=self.get_auth_headers(),
                 timeout=5
             )
             return response.status_code == 200
@@ -61,21 +84,25 @@ class ConnectionManager:
     def register_client(self):
         """Register with server and get JWT"""
         try:
+            public_key = None
+            if hasattr(self.state, 'device_signer') and self.state.device_signer:
+                public_key = self.state.device_signer.get_public_key_pem()
+                
             response = requests.post(
                 f"{self.config.server_url}/api/clients/register",
                 json={
                     'client_id': self.config.host_id,
                     'hardware_info': getattr(self.config, 'hardware_info', {}),
                     'baseline_id': self.config.baseline_id,
-                    'platform': self.config.platform_type
+                    'platform': self.config.platform_type,
+                    'public_key': public_key
                 },
+                headers=self.get_auth_headers(),
                 timeout=10
             )
             
             if response.status_code == 200:
-                data = response.json()
-                self.state.set_jwt(data['token'], data['expires_in'])
-                self.config.daemon_token = data['token']
+                print("Registration successful with public key.")
                 return True
         except Exception as e:
             print(f"Registration failed: {e}")

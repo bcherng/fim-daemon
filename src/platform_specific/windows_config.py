@@ -115,6 +115,16 @@ class WindowsFIMConfig(FIMConfig):
         self.host_id = self.hardware_id.client_id
         self.hardware_info = self.hardware_id.client_info
         
+        # Get server URL from registry
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"Software\FIMClient") as key:
+                url = winreg.QueryValueEx(key, "ServerURL")[0]
+                if url:
+                    self.server_url = url
+        except Exception:
+            pass
+        
         # Setup logging
         log_dir = os.path.expandvars(r'%APPDATA%\FIMClient\logs')
         ensure_directory(log_dir)

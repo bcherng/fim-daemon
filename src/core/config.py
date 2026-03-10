@@ -18,8 +18,6 @@ class FIMConfig:
         self.server_url = SERVER_URL
         self.watch_dir = watch_dir
         self.pid_file = pid_file
-        self.daemon_token = None
-        self.token_expires = 0
         
     def setup_logging(self, log_file):
         """Setup logging with provided log file path"""

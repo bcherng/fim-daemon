@@ -45,7 +45,15 @@ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Fil
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: startupicon
 
 [Run]
+Filename: "{sys}\sc.exe"; Parameters: "stop FIMAdmin"; Flags: runhidden skipifdoesntexist
+Filename: "{sys}\sc.exe"; Parameters: "delete FIMAdmin"; Flags: runhidden skipifdoesntexist
+Filename: "{sys}\sc.exe"; Parameters: "create FIMAdmin binPath= ""{app}\FIMAdmin.exe"" start= auto displayname= ""FIM Admin Service"""; Flags: runhidden
+Filename: "{sys}\sc.exe"; Parameters: "start FIMAdmin"; Flags: runhidden
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "{sys}\sc.exe"; Parameters: "stop FIMAdmin"; Flags: runhidden skipifdoesntexist
+Filename: "{sys}\sc.exe"; Parameters: "delete FIMAdmin"; Flags: runhidden skipifdoesntexist
 
 [Code]
 var
@@ -155,7 +163,7 @@ begin
     end;
     
     // Save server URL to registry for the application to use
-    RegWriteStringValue(HKEY_CURRENT_USER, 'Software\FIMClient', 'ServerURL', ServerURL);
+    RegWriteStringValue(HKEY_LOCAL_MACHINE, 'Software\FIMClient', 'ServerURL', ServerURL);
   end;
 end;
 

@@ -17,6 +17,10 @@ class FIMState:
         self.lock = threading.RLock()
         self.state = self._load_state()
         self.boot_id = uuid.uuid4().hex # Unique ID for this process run
+        
+        from core.crypto import DeviceSigner
+        state_dir = os.path.dirname(state_file)
+        self.device_signer = DeviceSigner(state_dir)
     
     def _load_state(self):
         """Load state from disk or create default"""
@@ -32,9 +36,6 @@ class FIMState:
             'last_valid_hash': None,
             'last_server_validation': None,
             'event_queue': [],
-            'jwt_token': None,
-            'token_expires': 0,
-            'admin_credentials': None,
             'is_deregistered': False
         }
     
@@ -48,16 +49,30 @@ class FIMState:
         except Exception as e:
             print(f"Failed to save state: {e}")
     
+    def _get_system_config_path(self):
+        import sys
+        if sys.platform == 'win32':
+            base_dir = os.environ.get('PROGRAMDATA', 'C:\\ProgramData')
+            return os.path.join(base_dir, 'FIMClient', 'system_config.json')
+        else:
+            return '/etc/fim-client/system_config.json'
+
     # Directory management
     def set_watch_directory(self, directory):
-        """Set the monitoring directory"""
-        with self.lock:
-            self.state['watch_directory'] = directory
-            self.save()
-    
+        """No-op for User Daemon. Admin Daemon changes this via IPC."""
+        pass
+        
     def get_watch_directory(self):
-        """Get the monitoring directory"""
-        return self.state.get('watch_directory')
+        """Get the monitoring directory from system config"""
+        sys_config_path = self._get_system_config_path()
+        if os.path.exists(sys_config_path):
+            try:
+                with open(sys_config_path, 'r') as f:
+                    config = json.load(f)
+                    return config.get('watch_directory')
+            except Exception:
+                return None
+        return None
     
     # Hash management
     def update_last_valid_hash(self, hash_value, validation):
@@ -77,6 +92,31 @@ class FIMState:
         from datetime import datetime
         with self.lock:
             event['queued_at'] = datetime.now().isoformat()
+            
+            # Determine prev_event_hash for the chain
+            prev_event_hash = None
+            if self.state['event_queue']:
+                prev_event_hash = self.state['event_queue'][-1].get('event_hash')
+            else:
+                prev_event_hash = self.state.get('last_valid_hash')
+                
+            event['prev_event_hash'] = prev_event_hash
+            
+            # Calculate new event_hash
+            import hashlib
+            hasher = hashlib.sha256()
+            hasher.update(str(event.get('id', '')).encode())
+            hasher.update(str(event.get('prev_event_hash', '')).encode())
+            hasher.update(str(event.get('last_valid_hash', '')).encode())
+            hasher.update(str(event.get('new_hash', '')).encode())
+            event['event_hash'] = hasher.hexdigest()
+            
+            # Sign event if possible
+            if hasattr(self, 'device_signer') and self.device_signer:
+                # Sign the deterministically stringified base chain elements
+                payload_str = f"{event.get('id')}{event.get('prev_event_hash')}{event.get('last_valid_hash')}{event.get('new_hash')}"
+                event['signature'] = self.device_signer.sign_payload(payload_str)
+            
             self.state['event_queue'].append(event)
             self.save()
     
@@ -96,80 +136,15 @@ class FIMState:
                 return event
             return None
     
-    def update_queued_events_base(self, new_hash):
-        """Update last_valid_hash for queued events to maintain chain"""
-        with self.lock:
-            first = True
-            for event in self.state['event_queue']:
-                if not first and event.get('event_type') == 'directory_selected':
-                    # Stop updating as this event starts a new chain
-                    break
-                event['last_valid_hash'] = new_hash
-                first = False
-            self.save()
-    
     def get_queue_size(self):
         """Get current queue size"""
         with self.lock:
             return len(self.state['event_queue'])
-    
-    # JWT management
-    def set_jwt(self, token, expires_in=2592000):
-        """Set JWT token and expiration"""
-        import time
-        with self.lock:
-            self.state['jwt_token'] = token
-            self.state['token_expires'] = time.time() + expires_in
-            self.save()
-    
-    def get_jwt(self):
-        """Get JWT token if not expired"""
-        import time
-        if self.state['jwt_token'] and time.time() < self.state['token_expires']:
-            return self.state['jwt_token']
-        return None
-    
-    def clear_jwt(self):
-        """Clear JWT token"""
-        with self.lock:
-            self.state['jwt_token'] = None
-            self.state['token_expires'] = 0
-            self.save()
-    
-    # Admin credentials
-    def set_admin_credentials(self, username, password_hash):
-        """Cache admin credentials"""
-        with self.lock:
-            self.state['admin_credentials'] = {
-                'username': username,
-                'password_hash': password_hash
-            }
-            self.save()
-    
-    def verify_admin_credentials(self, username, password):
-        """Verify admin credentials against cached hash"""
-        creds = self.state.get('admin_credentials')
-        if not creds or creds['username'] != username:
-            return False
-        
-        try:
-            import bcrypt
-            return bcrypt.checkpw(password.encode(), creds['password_hash'].encode())
-        except:
-            return False
-    
-    def clear_admin_credentials(self):
-        """Clear cached admin credentials"""
-        with self.lock:
-            self.state['admin_credentials'] = None
-            self.save()
 
     def set_deregistered(self, status):
         """Set the deregistered flag"""
         with self.lock:
             self.state['is_deregistered'] = status
-            if status:
-                self.state['jwt_token'] = None
             self.save()
 
     def is_deregistered(self):

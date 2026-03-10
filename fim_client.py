@@ -13,8 +13,8 @@ __version__ = "1.0.0"
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from core.state import FIMState
-from core.connection import ConnectionManager
-from core.admin import AdminVerifier
+from core.registration_client import RegistrationClient
+from core.token_client import TokenClient
 from gui.client_gui import FIMClientGUI
 import daemon.background # Force PyInstaller to include this module
 
@@ -48,10 +48,10 @@ def main():
     state = FIMState(state_file)
     
     # Initialize connection manager
-    conn_mgr = ConnectionManager(config, state)
+    conn_mgr = RegistrationClient(config, state)
     
     # Initialize admin verifier
-    admin_verifier = AdminVerifier(config, state)
+    admin_verifier = TokenClient(config, state)
     
     # Create and run GUI
     gui = FIMClientGUI(config, state, conn_mgr, admin_verifier)

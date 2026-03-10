@@ -124,35 +124,12 @@ class FIMClientGUI:
             
         result = messagebox.askyesno(
             "Select Monitoring Directory",
-            "Would you like to select a directory to monitor?\n\n"
-            "FIM will track all file changes in this directory."
+            "This machine has no monitoring directory set.\n\n"
+            "Would you like to configure one now? (Requires Admin credentials)"
         )
         
         if result:
-            directory = filedialog.askdirectory(title="Select Directory to Monitor")
-            if directory:
-                # Calculate initial hash and queue directory_selected event
-                try:
-                    tree, files = build_initial_tree(directory)
-                    root_hash = tree[0][0].hex() if tree else None
-                    file_count = len(files) if files else 0
-                    
-                    self.state.enqueue_event({
-                        'event_type': 'directory_selected',
-                        'file_path': directory,
-                        'root_hash': root_hash,
-                        'new_hash': root_hash,
-                        'file_count': file_count,
-                        'timestamp': datetime.now().isoformat()
-                    })
-                    
-                    self.state.update_last_valid_hash(root_hash, {'timestamp': datetime.now().isoformat(), 'accepted': True})
-                except Exception as e:
-                    self.log_message(f"Error building tree: {e}", "error")
-                
-                self.set_monitoring_directory(directory)
-            else:
-                messagebox.showwarning("No Directory", "No directory selected. You can set it later.")
+            self.change_directory()
         else:
             messagebox.showinfo("Info", "You can set the monitoring directory later from the GUI.")
     
@@ -219,7 +196,9 @@ class FIMClientGUI:
             username = username_entry.get()
             password = password_entry.get()
             
-            if self.admin_verifier.verify_credentials(username, password):
+            # Fetch token (also acts as offline-check/timeout)
+            token = self.admin_verifier.get_action_token(username, password, 'change_directory')
+            if token:
                 dialog.destroy()
                 directory = filedialog.askdirectory(
                     title="Select New Directory to Monitor"
@@ -227,6 +206,14 @@ class FIMClientGUI:
                 if directory:
                     old_dir = self.state.get_watch_directory()
                     old_hash = self.state.get_last_valid_hash()
+                    
+                    # IPC call to elevated admin daemon to change system config
+                    from core.admin_ipc_client import send_admin_request
+                    response = send_admin_request('change_directory', token, {'path': directory})
+                    
+                    if not response.get('success'):
+                        messagebox.showerror("Error", f"Admin daemon failed: {response.get('error')}")
+                        return
                     
                     self.add_log(
                         datetime.now().isoformat(),
@@ -477,11 +464,17 @@ class FIMClientGUI:
             )
             
             if confirm:
-                if self.attempt_uninstall(username, password):
-                    dialog.destroy()
-                    self.uninstall_client()
+                token = self.admin_verifier.get_action_token(username, password, 'uninstall')
+                if token:
+                    from core.admin_ipc_client import send_admin_request
+                    response = send_admin_request('uninstall', token, {})
+                    if response.get('success'):
+                        dialog.destroy()
+                        self.uninstall_client()
+                    else:
+                        messagebox.showerror("Error", f"Uninstall failed: {response.get('error')}")
                 else:
-                    messagebox.showerror("Error", "Uninstall notification failed. Check credentials.")
+                    messagebox.showerror("Error", "Authentication failed or offline")
         
         ttk.Button(
             btn_frame,
