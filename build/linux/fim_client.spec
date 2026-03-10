@@ -20,6 +20,16 @@ hidden_imports = [
     'bcrypt',
     'cffi',
     '_cffi_backend',
+    'cryptography',
+    'cryptography.hazmat',
+    'cryptography.hazmat.primitives',
+    'cryptography.hazmat.primitives.asymmetric',
+    'cryptography.hazmat.primitives.asymmetric.rsa',
+    'cryptography.hazmat.primitives.asymmetric.padding',
+    'cryptography.hazmat.primitives.hashes',
+    'cryptography.hazmat.primitives.serialization',
+    'cryptography.hazmat.backends',
+    'cryptography.hazmat.backends.openssl',
 ]
 
 # Collect all submodules from core, gui, daemon, platform_specific
