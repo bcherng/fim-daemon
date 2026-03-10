@@ -13,6 +13,16 @@ import requests
 import time
 from multiprocessing.connection import Listener
 
+# Windows Service Imports
+if sys.platform == 'win32':
+    try:
+        import win32serviceutil
+        import win32service
+        import win32event
+        import servicemanager
+    except ImportError:
+        pass
+
 # Add core to path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
 
@@ -39,7 +49,7 @@ def get_system_config_path():
 class FIMAdminDaemon:
     
     def __init__(self):
-        self.config = get_config()
+        self.config = get_config(skip_logging=True)
         self.setup_logging()
         self.sys_config_path = get_system_config_path()
         self.running = True
@@ -214,23 +224,32 @@ class FIMAdminDaemon:
         finally:
             conn.close()
 
+    def stop(self):
+        self.running = False
+
     def run(self):
         self.logger.info(f"Starting FIM Admin Daemon on {self.config.platform_type}")
         
         if sys.platform == 'win32':
             address = r'\\.\pipe\fim_admin_ipc'
-            listener = Listener(address)
-            self.logger.info(f"Listening on Named Pipe: {address}")
-            
-            while self.running:
-                try:
-                    conn = listener.accept()
-                    client_thread = threading.Thread(target=self.handle_client, args=(conn,))
-                    client_thread.daemon = True
-                    client_thread.start()
-                except Exception as e:
-                    self.logger.error(f"Listener error: {e}")
-                    time.sleep(1)
+            try:
+                # multiprocessing.connection doesn't provide easy way to set security on pipe
+                # but we'll try to at least allow it to run and not crash
+                listener = Listener(address)
+                self.logger.info(f"Listening on Named Pipe: {address}")
+                
+                while self.running:
+                    try:
+                        conn = listener.accept()
+                        client_thread = threading.Thread(target=self.handle_client, args=(conn,))
+                        client_thread.daemon = True
+                        client_thread.start()
+                    except Exception as e:
+                        if self.running:
+                            self.logger.error(f"Listener error: {e}")
+                            time.sleep(1)
+            except Exception as e:
+                self.logger.critical(f"Failed to start listener: {e}")
         else:
             # Unix socket
             address = '/var/run/fim_admin.sock'
@@ -250,9 +269,53 @@ class FIMAdminDaemon:
                     client_thread.daemon = True
                     client_thread.start()
                 except Exception as e:
-                    self.logger.error(f"Listener error: {e}")
-                    time.sleep(1)
+                    if self.running:
+                        self.logger.error(f"Listener error: {e}")
+                        time.sleep(1)
+
+# Windows Service Class
+if sys.platform == 'win32':
+    class FIMAdminService(win32serviceutil.ServiceFramework):
+        _svc_name_ = "FIMAdmin"
+        _svc_display_name_ = "FIM Admin Service"
+        _svc_description_ = "Elevated background worker for FIM Client critical actions"
+
+        def __init__(self, args):
+            win32serviceutil.ServiceFramework.__init__(self, args)
+            self.stop_event = win32event.CreateEvent(None, 0, 0, None)
+            self.daemon = FIMAdminDaemon()
+
+        def SvcStop(self):
+            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+            self.daemon.stop()
+            win32event.SetEvent(self.stop_event)
+
+        def SvcDoRun(self):
+            servicemanager.LogMsg(
+                servicemanager.EVENTLOG_INFORMATION_TYPE,
+                servicemanager.PYS_SERVICE_STARTED,
+                (self._svc_name_, '')
+            )
+            self.daemon.run()
 
 if __name__ == '__main__':
-    daemon = FIMAdminDaemon()
-    daemon.run()
+    if sys.platform == 'win32':
+        # Check if we are running as a service
+        # When started by SCM, the command line is empty or has a special flag
+        if len(sys.argv) > 1 and sys.argv[1] in ['install', 'update', 'remove', 'start', 'stop', 'restart', 'status']:
+            win32serviceutil.HandleCommandLine(FIMAdminService)
+        else:
+            # Check if running under SCM context
+            try:
+                # This call will fail if not running as a service
+                servicemanager.Initialize()
+                servicemanager.PrepareToHostSingle(FIMAdminService)
+                servicemanager.StartServiceCtrlDispatcher()
+            except:
+                # Run as a normal process (debug mode or manual start)
+                daemon = FIMAdminDaemon()
+                daemon.run()
+    else:
+        # Linux - just run normal
+        daemon = FIMAdminDaemon()
+        daemon.run()

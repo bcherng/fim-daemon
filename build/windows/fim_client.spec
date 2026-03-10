@@ -29,18 +29,22 @@ hidden_imports.extend(collect_submodules('gui'))
 hidden_imports.extend(collect_submodules('daemon'))
 hidden_imports.extend(collect_submodules('platform_specific'))
 
-# collect_all properly bundles C extension binaries for cryptography, bcrypt, cffi
+# collect_all properly bundles C extension binaries for cryptography, bcrypt, cffi, pywin32
 # NOTE: collect_all returns (datas, binaries, hiddenimports)
 crypto_datas, crypto_binaries, crypto_hiddenimports = collect_all('cryptography')
 bcrypt_datas, bcrypt_binaries, bcrypt_hiddenimports = collect_all('bcrypt')
 cffi_datas, cffi_binaries, cffi_hiddenimports = collect_all('cffi')
+win32_datas, win32_binaries, win32_hiddenimports = collect_all('pywin32')
+
 hidden_imports.extend(crypto_hiddenimports)
 hidden_imports.extend(bcrypt_hiddenimports)
 hidden_imports.extend(cffi_hiddenimports)
+hidden_imports.extend(win32_hiddenimports)
+hidden_imports.extend(['win32timezone', 'win32service', 'win32serviceutil', 'win32event', 'servicemanager'])
 
 # Data files to include
-datas = crypto_datas + bcrypt_datas + cffi_datas
-binaries = crypto_binaries + bcrypt_binaries + cffi_binaries
+datas = crypto_datas + bcrypt_datas + cffi_datas + win32_datas
+binaries = crypto_binaries + bcrypt_binaries + cffi_binaries + win32_binaries
 
 a_client = Analysis(
     ['../../fim_client.py'],
