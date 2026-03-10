@@ -69,7 +69,7 @@ if sys.platform == 'win32':
             self._pipe_handle = win32pipe.CreateNamedPipe(
                 self.address,
                 win32pipe.PIPE_ACCESS_DUPLEX,
-                win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
                 win32pipe.PIPE_UNLIMITED_INSTANCES,
                 65536, 65536,
                 0,
@@ -84,9 +84,13 @@ if sys.platform == 'win32':
             win32pipe.ConnectNamedPipe(self._pipe_handle, None)
             
             with self._lock:
-                # IMPORTANT: Detach the handle so it's not closed when we reassign self._pipe_handle
-                # CreateNamedPipe returns a PyHANDLE object which closes the handle on __del__
-                handle = self._pipe_handle.Detach()
+                # Detach the handle so it's not closed when we reassign self._pipe_handle
+                # We cast to int for the Connection object
+                try:
+                    handle = int(self._pipe_handle.Detach())
+                except:
+                    handle = int(self._pipe_handle)
+                
                 conn = Connection(handle)
                 
                 # Prepare for the next client connection
