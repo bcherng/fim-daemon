@@ -46,6 +46,53 @@ def get_system_config_path():
     os.makedirs(config_dir, exist_ok=True)
     return os.path.join(config_dir, 'system_config.json')
 
+# Windows Pipe Listener helper
+if sys.platform == 'win32':
+    class WindowsPipeListener:
+        def __init__(self, address):
+            self.address = address
+            self._lock = threading.Lock()
+            self._next_pipe()
+            
+        def _next_pipe(self):
+            import win32security
+            import win32pipe
+            
+            sd = win32security.SECURITY_DESCRIPTOR()
+            sd.Initialize()
+            sd.SetSecurityDescriptorDacl(1, None, 0) # NULL DACL = Everyone
+            
+            sa = win32security.SECURITY_ATTRIBUTES()
+            sa.SECURITY_DESCRIPTOR = sd
+            sa.bInheritHandle = 1
+            
+            self._pipe_handle = win32pipe.CreateNamedPipe(
+                self.address,
+                win32pipe.PIPE_ACCESS_DUPLEX,
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_UNLIMITED_INSTANCES,
+                65536, 65536,
+                0,
+                sa
+            )
+
+        def accept(self):
+            import win32pipe
+            from multiprocessing.connection import Connection
+            
+            # This blocks until a client connects
+            win32pipe.ConnectNamedPipe(self._pipe_handle, None)
+            
+            with self._lock:
+                # Wrap the handle in a multiprocessing Connection
+                handle = int(self._pipe_handle)
+                conn = Connection(handle)
+                
+                # Prepare for the next client connection
+                self._next_pipe()
+                
+                return conn
+
 class FIMAdminDaemon:
     
     def __init__(self):
@@ -56,7 +103,6 @@ class FIMAdminDaemon:
 
     def setup_logging(self):
         if sys.platform == 'win32':
-            # Use ProgramData for system-wide logs
             log_dir = os.path.join(os.environ.get('PROGRAMDATA', 'C:\\ProgramData'), 'FIMClient', 'logs')
         else:
             log_dir = '/var/log/fim-client'
@@ -65,22 +111,19 @@ class FIMAdminDaemon:
             os.makedirs(log_dir, exist_ok=True)
             log_file = os.path.join(log_dir, 'admin_daemon.log')
             
-            # Setup handlers - avoid StreamHandler if stdout is missing (e.g. in a Windows service)
             handlers = [logging.FileHandler(log_file)]
             if sys.stdout is not None:
                 handlers.append(logging.StreamHandler(sys.stdout))
                 
-            # Use a fresh logger or force basicConfig if needed
             logging.basicConfig(
                 level=logging.INFO,
                 format='%(asctime)s - AdminDaemon - %(levelname)s - %(message)s',
                 handlers=handlers,
-                force=True  # Clear any previous config from WindowsFIMConfig
+                force=True
             )
             self.logger = logging.getLogger(__name__)
             self.logger.info("Admin logging initialized successfully")
         except Exception as e:
-            # Fallback for critical failure
             print(f"CRITICAL: Failed to setup logging: {e}")
             self.logger = logging.getLogger(__name__)
 
@@ -115,7 +158,6 @@ class FIMAdminDaemon:
         if not new_path:
             return {"success": False, "error": "No path provided"}
             
-        # Read current system config
         sys_config = {}
         if os.path.exists(self.sys_config_path):
             try:
@@ -124,10 +166,8 @@ class FIMAdminDaemon:
             except Exception as e:
                 self.logger.error(f"Error reading system config: {e}")
                 
-        # Update watch directory
         sys_config['watch_directory'] = new_path
         
-        # Save back to system config
         try:
             with open(self.sys_config_path, 'w') as f:
                 json.dump(sys_config, f, indent=2)
@@ -138,11 +178,10 @@ class FIMAdminDaemon:
             return {"success": False, "error": f"Failed to save configuration: {str(e)}"}
 
     def handle_uninstall(self, payload):
-        """Handle self-uninstallation. The script will try to remove the service/files."""
+        """Handle self-uninstallation"""
         self.logger.warning("Uninstallation triggered via Admin Daemon")
         
         if sys.platform == 'win32':
-            # Try to run the InnoSetup uninstaller silently
             import winreg
             try:
                 uninstall_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{FIM-CLIENT-99E7-4562-AB89-1234567890AB}_is1"
@@ -150,17 +189,14 @@ class FIMAdminDaemon:
                     uninstall_string = winreg.QueryValueEx(key, "QuietUninstallString")[0]
                     if uninstall_string:
                         import subprocess
-                        # Run uninstaller detached
                         subprocess.Popen(uninstall_string, shell=True)
                         return {"success": True, "message": "Uninstallation started"}
             except Exception as e:
                 self.logger.error(f"Failed to find or launch Windows uninstaller: {e}")
                 return {"success": False, "error": f"Failed to find uninstaller: {str(e)}"}
         else:
-            # Linux uninstallation (dpkg purge or manual rm)
             import subprocess
             try:
-                # Run apt-get remove detached or remove service files
                 subprocess.Popen("apt-get remove -y fim-client || dpkg -r fim-client", shell=True)
                 return {"success": True, "message": "Uninstallation started"}
             except Exception as e:
@@ -171,13 +207,10 @@ class FIMAdminDaemon:
 
     def handle_client(self, conn, addr=None):
         try:
-            # Depending on if it's multiprocessing.connection or raw socket
             if hasattr(conn, 'recv'):
-                # multiprocessing.connection
                 request = conn.recv()
                 self.logger.info(f"Received IPC request from {addr if addr else 'client'}")
             else:
-                # Raw socket
                 data = conn.recv(8192)
                 if not data:
                     return
@@ -191,13 +224,10 @@ class FIMAdminDaemon:
             if not action or not token:
                 response = {"success": False, "error": "Missing action or token"}
             else:
-                # Verify token physically with server
                 is_valid, validation_data = self.verify_action_token(token, action)
-                
                 if not is_valid:
                     response = {"success": False, "error": f"Token rejected: {validation_data}"}
                 else:
-                    # Token is valid, route to handler
                     if action == 'change_directory':
                         response = self.handle_change_directory(payload)
                     elif action == 'uninstall':
@@ -205,7 +235,6 @@ class FIMAdminDaemon:
                     else:
                         response = {"success": False, "error": f"Unknown action: {action}"}
                         
-            # Send response back
             if hasattr(conn, 'send'):
                 conn.send(response)
             else:
@@ -227,64 +256,12 @@ class FIMAdminDaemon:
     def stop(self):
         self.running = False
 
-# Windows Pipe Listener with proper security attributes
-if sys.platform == 'win32':
-    class WindowsPipeListener:
-        def __init__(self, address):
-            self.address = address
-            self._lock = threading.Lock()
-            self._next_pipe()
-            
-        def _next_pipe(self):
-            # Create a SECURITY_DESCRIPTOR with a NULL DACL (allows everyone)
-            # This is necessary because the service runs as LocalSystem 
-            # and the GUI runs as the user.
-            import win32security
-            import win32pipe
-            
-            sd = win32security.SECURITY_DESCRIPTOR()
-            sd.Initialize()
-            sd.SetSecurityDescriptorDacl(1, None, 0) # NULL DACL = Everyone
-            
-            sa = win32security.SECURITY_ATTRIBUTES()
-            sa.SECURITY_DESCRIPTOR = sd
-            sa.bInheritHandle = 1
-            
-            self._pipe_handle = win32pipe.CreateNamedPipe(
-                self.address,
-                win32pipe.PIPE_ACCESS_DUPLEX,
-                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-                win32pipe.PIPE_UNLIMITED_INSTANCES,
-                65536, 65536,
-                0,
-                sa
-            )
-
-        def accept(self):
-            import win32pipe
-            from multiprocessing.connection import Connection
-            
-            # This blocks until a client connects
-            win32pipe.ConnectNamedPipe(self._pipe_handle, None)
-            
-            with self._lock:
-                # Wrap the handle in a multiprocessing Connection
-                # On Windows, Connection() takes the int handle
-                handle = int(self._pipe_handle)
-                conn = Connection(handle)
-                
-                # Prepare the instance for the next caller
-                self._next_pipe()
-                
-                return conn
-
     def run(self):
         self.logger.info(f"Starting FIM Admin Daemon on {self.config.platform_type}")
         
         if sys.platform == 'win32':
             address = r'\\.\pipe\fim_admin_ipc'
             try:
-                # Use our custom listener with permissive security attributes
                 listener = WindowsPipeListener(address)
                 self.logger.info(f"Listening on Named Pipe with permissive DACL: {address}")
                 
@@ -350,22 +327,16 @@ if sys.platform == 'win32':
 
 if __name__ == '__main__':
     if sys.platform == 'win32':
-        # Check if we are running as a service
-        # When started by SCM, the command line is empty or has a special flag
         if len(sys.argv) > 1 and sys.argv[1] in ['install', 'update', 'remove', 'start', 'stop', 'restart', 'status']:
             win32serviceutil.HandleCommandLine(FIMAdminService)
         else:
-            # Check if running under SCM context
             try:
-                # This call will fail if not running as a service
                 servicemanager.Initialize()
                 servicemanager.PrepareToHostSingle(FIMAdminService)
                 servicemanager.StartServiceCtrlDispatcher()
             except:
-                # Run as a normal process (debug mode or manual start)
                 daemon = FIMAdminDaemon()
                 daemon.run()
     else:
-        # Linux - just run normal
         daemon = FIMAdminDaemon()
         daemon.run()
