@@ -69,7 +69,7 @@ if sys.platform == 'win32':
             self._pipe_handle = win32pipe.CreateNamedPipe(
                 self.address,
                 win32pipe.PIPE_ACCESS_DUPLEX,
-                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
                 win32pipe.PIPE_UNLIMITED_INSTANCES,
                 65536, 65536,
                 0,
@@ -84,8 +84,9 @@ if sys.platform == 'win32':
             win32pipe.ConnectNamedPipe(self._pipe_handle, None)
             
             with self._lock:
-                # Wrap the handle in a multiprocessing Connection
-                handle = int(self._pipe_handle)
+                # IMPORTANT: Detach the handle so it's not closed when we reassign self._pipe_handle
+                # CreateNamedPipe returns a PyHANDLE object which closes the handle on __del__
+                handle = self._pipe_handle.Detach()
                 conn = Connection(handle)
                 
                 # Prepare for the next client connection
@@ -207,10 +208,16 @@ class FIMAdminDaemon:
 
     def handle_client(self, conn, addr=None):
         try:
-            if hasattr(conn, 'recv'):
+            # Distinguish between multiprocessing.connection.Connection and raw socket
+            # multiprocessing Connection has 'recv' and 'send' but doesn't take bufsize for recv
+            # We check the module/name to be robust across different Python versions/platforms
+            conn_type = type(conn).__name__
+            
+            if 'Connection' in conn_type:
                 request = conn.recv()
-                self.logger.info(f"Received IPC request from {addr if addr else 'client'}")
+                self.logger.info(f"Received IPC Connection request from {addr if addr else 'client'}")
             else:
+                # Raw socket (Linux)
                 data = conn.recv(8192)
                 if not data:
                     return
