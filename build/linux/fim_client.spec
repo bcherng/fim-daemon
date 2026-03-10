@@ -29,9 +29,10 @@ hidden_imports.extend(collect_submodules('daemon'))
 hidden_imports.extend(collect_submodules('platform_specific'))
 
 # collect_all properly bundles C extension binaries for cryptography, bcrypt, cffi
-crypto_hiddenimports, crypto_binaries, crypto_datas = collect_all('cryptography')
-bcrypt_hiddenimports, bcrypt_binaries, bcrypt_datas = collect_all('bcrypt')
-cffi_hiddenimports, cffi_binaries, cffi_datas = collect_all('cffi')
+# NOTE: collect_all returns (datas, binaries, hiddenimports)
+crypto_datas, crypto_binaries, crypto_hiddenimports = collect_all('cryptography')
+bcrypt_datas, bcrypt_binaries, bcrypt_hiddenimports = collect_all('bcrypt')
+cffi_datas, cffi_binaries, cffi_hiddenimports = collect_all('cffi')
 hidden_imports.extend(crypto_hiddenimports)
 hidden_imports.extend(bcrypt_hiddenimports)
 hidden_imports.extend(cffi_hiddenimports)
