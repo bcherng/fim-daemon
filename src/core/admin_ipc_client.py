@@ -57,7 +57,7 @@ def send_admin_request(action, token, payload=None, timeout=5.0):
         return response
         
     except FileNotFoundError:
-        return {"success": False, "error": "Admin daemon is not running (IPC pipe not found). [BUILD_REF_V2]"}
+        return {"success": False, "error": "Admin daemon is not running (IPC pipe not found). [BUILD_REF_V3]"}
     except ConnectionRefusedError:
         return {"success": False, "error": "Admin daemon connection refused."}
     except Exception as e:

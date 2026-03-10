@@ -227,16 +227,66 @@ class FIMAdminDaemon:
     def stop(self):
         self.running = False
 
+# Windows Pipe Listener with proper security attributes
+if sys.platform == 'win32':
+    class WindowsPipeListener:
+        def __init__(self, address):
+            self.address = address
+            self._lock = threading.Lock()
+            self._next_pipe()
+            
+        def _next_pipe(self):
+            # Create a SECURITY_DESCRIPTOR with a NULL DACL (allows everyone)
+            # This is necessary because the service runs as LocalSystem 
+            # and the GUI runs as the user.
+            import win32security
+            import win32pipe
+            
+            sd = win32security.SECURITY_DESCRIPTOR()
+            sd.Initialize()
+            sd.SetSecurityDescriptorDacl(1, None, 0) # NULL DACL = Everyone
+            
+            sa = win32security.SECURITY_ATTRIBUTES()
+            sa.SECURITY_DESCRIPTOR = sd
+            sa.bInheritHandle = 1
+            
+            self._pipe_handle = win32pipe.CreateNamedPipe(
+                self.address,
+                win32pipe.PIPE_ACCESS_DUPLEX,
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_UNLIMITED_INSTANCES,
+                65536, 65536,
+                0,
+                sa
+            )
+
+        def accept(self):
+            import win32pipe
+            from multiprocessing.connection import Connection
+            
+            # This blocks until a client connects
+            win32pipe.ConnectNamedPipe(self._pipe_handle, None)
+            
+            with self._lock:
+                # Wrap the handle in a multiprocessing Connection
+                # On Windows, Connection() takes the int handle
+                handle = int(self._pipe_handle)
+                conn = Connection(handle)
+                
+                # Prepare the instance for the next caller
+                self._next_pipe()
+                
+                return conn
+
     def run(self):
         self.logger.info(f"Starting FIM Admin Daemon on {self.config.platform_type}")
         
         if sys.platform == 'win32':
             address = r'\\.\pipe\fim_admin_ipc'
             try:
-                # multiprocessing.connection doesn't provide easy way to set security on pipe
-                # but we'll try to at least allow it to run and not crash
-                listener = Listener(address)
-                self.logger.info(f"Listening on Named Pipe: {address}")
+                # Use our custom listener with permissive security attributes
+                listener = WindowsPipeListener(address)
+                self.logger.info(f"Listening on Named Pipe with permissive DACL: {address}")
                 
                 while self.running:
                     try:
