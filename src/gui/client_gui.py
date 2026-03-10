@@ -31,11 +31,6 @@ class FIMClientGUI:
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
-        if not self.state.get_jwt():
-            if self.state.is_deregistered():
-                self.state.set_deregistered(False)
-            self.state.set_watch_directory(None)
-        
         if self.state.is_deregistered():
             self.handle_deregistration("This machine has been deregistered.")
         elif not self.state.get_watch_directory():
@@ -503,9 +498,6 @@ class FIMClientGUI:
             )
             
             if response.status_code == 200:
-                data = response.json()
-                # Save new token
-                self.state.set_jwt(data['token'], data.get('expires_in', 30 * 24 * 60 * 60))
                 self.state.set_deregistered(False)
                 self.add_log(datetime.now().isoformat(), "✓ Reregistered successfully", "success")
                 if hasattr(self, 'change_dir_btn'):
