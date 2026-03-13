@@ -66,6 +66,15 @@ def main():
         print("FIM Client is already running. Exiting.")
         sys.exit(0)
         
+    # Ensure admin daemon is running (relies on its own lock to avoid duplicates)
+    import subprocess
+    daemon_path = os.path.join(os.path.dirname(__file__), 'src', 'daemon', 'admin_daemon.py')
+    if sys.platform == 'win32':
+        subprocess.Popen([sys.executable, daemon_path, "run"], creationflags=0x08000000) # CREATE_NO_WINDOW
+    else:
+        subprocess.Popen([sys.executable, daemon_path, "run"])
+        
+        
     # Initialize configuration
     config = get_config()
     
