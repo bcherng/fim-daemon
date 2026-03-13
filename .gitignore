@@ -14,3 +14,9 @@ ENV/
 # Environment variables
 .env
 .vscode
+
+# FIM Sensitive Data
+keys/
+state.json
+logs/
+*.pem

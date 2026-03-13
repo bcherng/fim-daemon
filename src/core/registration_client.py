@@ -35,50 +35,34 @@ class RegistrationClient:
         """Attempt to connect to server with exponential backoff"""
         current_time = time.time()
         
-        # Check if we should attempt based on backoff
         if current_time - self.last_attempt < self.current_backoff:
             return False
         
         self.last_attempt = current_time
         
-        # Try to verify registration with server
         if self.verify_registration():
             self.connected = True
             self.current_backoff = 1
             return True
             
-        # Need to register
         if self.register_client():
             self.connected = True
             self.current_backoff = 1
             return True
         
-        # Increase backoff on failure
-        self.current_backoff = min(self.current_backoff * 2, self.max_backoff)
-        return False
-        
-        # Increase backoff on failure
         self.current_backoff = min(self.current_backoff * 2, self.max_backoff)
         return False
     
     def verify_registration(self):
-        """Verify client is registered using device signature"""
+        """Verify client registration by hitting a secure endpoint"""
         try:
-            response = requests.get(
-                f"{self.config.server_url}/api/health",
-                headers=self.get_auth_headers(),
-                timeout=5
-            )
-            
-            # Health is unauthenticated, but we can hit verify or just rely on heartbeat later.
-            # Wait, let's actually hit a daemon-authenticated endpoint to prove registration
             response = requests.post(
                 f"{self.config.server_url}/api/clients/verify",
                 headers=self.get_auth_headers(),
                 timeout=5
             )
             return response.status_code == 200
-        except:
+        except Exception:
             return False
     
     def register_client(self):
@@ -103,6 +87,9 @@ class RegistrationClient:
             
             if response.status_code == 200:
                 print("Registration successful with public key.")
+                data = response.json()
+                if 'server_public_key' in data:
+                    self.state.set_server_public_key(data['server_public_key'])
                 return True
         except Exception as e:
             print(f"Registration failed: {e}")

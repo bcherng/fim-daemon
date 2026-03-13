@@ -17,7 +17,6 @@ class FileMonitor:
         self.gui_queue = gui_queue
         self.event_queue_mgr = event_queue_mgr
         self.lock = lock
-        self.event_counter = 0
         self.deregistered = False
 
     def log_to_gui(self, message, status="info"):
@@ -65,7 +64,6 @@ class FileMonitor:
             path_info = get_merkle_path(self.tree, self.files, file_path)
             
             event_data = {
-                'id': f"{self.config.host_id}-{self.event_counter}-{int(time.time()*1000)}",
                 'client_id': self.config.host_id,
                 'event_type': 'deleted' if is_deleted else ('modified' if file_index >= 0 else 'created'),
                 'file_path': file_path,
@@ -80,7 +78,6 @@ class FileMonitor:
                 'timestamp': datetime.now().isoformat()
             }
             
-            self.event_counter += 1
             
             self.state.enqueue_event(event_data)
             self.log_to_gui(f"Queued: {event_data['event_type']} - {file_path}", "info")

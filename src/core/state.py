@@ -6,28 +6,52 @@ import os
 import json
 import threading
 import uuid
+import sys
+import hashlib
+import base64
+from datetime import datetime
 from pathlib import Path
+
+try:
+    import win32crypt
+except ImportError:
+    win32crypt = None
+
+try:
+    from cryptography.fernet import Fernet
+except ImportError:
+    Fernet = None
+
+from core.crypto import DeviceSigner, ServerVerifier
 
 
 class FIMState:
     """Thread-safe persistent state manager"""
     
     def __init__(self, state_file):
+        """Initialize state manager and load persistent state from disk"""
         self.state_file = state_file
         self.lock = threading.RLock()
         self.state = self._load_state()
-        self.boot_id = uuid.uuid4().hex # Unique ID for this process run
-        
-        from core.crypto import DeviceSigner
+        self.boot_id = uuid.uuid4().hex
         state_dir = os.path.dirname(state_file)
         self.device_signer = DeviceSigner(state_dir)
+        self.server_verifier = ServerVerifier()
+        
+        if self.state.get('server_public_key'):
+            self.server_verifier.load_public_key(self.state['server_public_key'])
     
     def _load_state(self):
         """Load state from disk or create default"""
         if os.path.exists(self.state_file):
             try:
-                with open(self.state_file, 'r') as f:
-                    return json.load(f)
+                with open(self.state_file, 'rb') as f:
+                    data = f.read()
+                
+                if data and data[0:1] != b'{':
+                    data = self._decrypt(data)
+                
+                return json.loads(data)
             except Exception as e:
                 print(f"Failed to load state: {e}")
         
@@ -35,28 +59,89 @@ class FIMState:
             'watch_directory': None,
             'last_valid_hash': None,
             'last_server_validation': None,
+            'last_event_id': 0,
             'event_queue': [],
-            'is_deregistered': False
+            'is_deregistered': False,
+            'server_public_key': None
         }
     
     def save(self):
-        """Save state to disk"""
+        """Save state to disk (encrypted)"""
         try:
             with self.lock:
                 os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
-                with open(self.state_file, 'w') as f:
-                    json.dump(self.state, f, indent=2)
+                json_data = json.dumps(self.state, indent=2).encode('utf-8')
+                
+                encrypted_data = self._encrypt(json_data)
+                
+                with open(self.state_file, 'wb') as f:
+                    f.write(encrypted_data)
+                
+                if sys.platform != 'win32':
+                    os.chmod(self.state_file, 0o600)
         except Exception as e:
             print(f"Failed to save state: {e}")
+
+    def _encrypt(self, data):
+        """Encrypt data using Windows DPAPI or Linux Fernet"""
+        if sys.platform == 'win32' and win32crypt:
+            try:
+                return win32crypt.CryptProtectData(data, "FIM State", None, None, None, 0)
+            except Exception as e:
+                print(f"DPAPI Encryption failed: {e}")
+        elif sys.platform != 'win32' and Fernet:
+            try:
+                f = Fernet(self._get_machine_id_key())
+                return f.encrypt(data)
+            except Exception as e:
+                print(f"Linux Encryption failed: {e}")
+        return data
+
+    def _decrypt(self, data):
+        """Decrypt data using Windows DPAPI or Linux Fernet"""
+        if sys.platform == 'win32' and win32crypt:
+            try:
+                # CryptUnprotectData(data, entropy, reserved, prompt_struct, flags)
+                _, decrypted_data = win32crypt.CryptUnprotectData(data, None, None, None, 0)
+                return decrypted_data
+            except Exception as e:
+                print(f"DPAPI Decryption failed: {e}")
+        elif sys.platform != 'win32' and Fernet:
+            try:
+                f = Fernet(self._get_machine_id_key())
+                return f.decrypt(data)
+            except Exception as e:
+                print(f"Linux Decryption failed: {e}")
+        return data
+
+    def _get_machine_id_key(self):
+        """Derive a unique machine-bound key for Linux"""
+        machine_id_paths = ['/etc/machine-id', '/var/lib/dbus/machine-id']
+        machine_id = None
+        for path in machine_id_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r') as f:
+                        machine_id = f.read().strip()
+                    break
+                except:
+                    continue
+        
+        if not machine_id:
+            import socket
+            machine_id = socket.gethostname()
+            
+        key_hash = hashlib.sha256(machine_id.encode()).digest()
+        return base64.urlsafe_b64encode(key_hash)
     
     def _get_system_config_path(self):
-        import sys
+        """Determine path to core system configuration file"""
         if sys.platform == 'win32':
             base_dir = os.environ.get('PROGRAMDATA', 'C:\\ProgramData')
             return os.path.join(base_dir, 'FIMClient', 'system_config.json')
         else:
             return '/etc/fim-client/system_config.json'
-
+ 
     # Directory management
     def set_watch_directory(self, directory):
         """No-op for User Daemon. Admin Daemon changes this via IPC."""
@@ -89,14 +174,21 @@ class FIMState:
     # Event queue operations
     def enqueue_event(self, event):
         """Add event to end of queue"""
-        from datetime import datetime
         with self.lock:
             event['queued_at'] = datetime.now().isoformat()
             
-            # Ensure last_valid_hash is present if not provided
             if event.get('last_valid_hash') is None:
                 event['last_valid_hash'] = self.get_last_valid_hash()
-
+ 
+            # Assign and increment monotonic event ID
+            if 'id' not in event:
+                self.state['last_event_id'] += 1
+                event['id'] = self.state['last_event_id']
+            elif isinstance(event['id'], str) and '-' in event['id']:
+                # If it's a legacy string ID, we still want to track it but maybe convert eventually
+                # For now, if no ID is passed, we use the counter.
+                pass
+ 
             # Determine prev_event_hash for the chain
             prev_event_hash = None
             if self.state['event_queue']:
@@ -107,7 +199,6 @@ class FIMState:
             event['prev_event_hash'] = prev_event_hash
             
             # Calculate new event_hash
-            import hashlib
             hasher = hashlib.sha256()
             hasher.update(str(event.get('id', '')).encode())
             hasher.update(str(event.get('prev_event_hash') or '').encode())
@@ -115,9 +206,7 @@ class FIMState:
             hasher.update(str(event.get('new_hash') or '').encode())
             event['event_hash'] = hasher.hexdigest()
             
-            # Sign event if possible
             if hasattr(self, 'device_signer') and self.device_signer:
-                # Sign the deterministically stringified base chain elements
                 payload_str = f"{event.get('id')}{event.get('prev_event_hash')}{event.get('last_valid_hash')}{event.get('new_hash')}"
                 event['signature'] = self.device_signer.sign_payload(payload_str)
             
@@ -144,13 +233,20 @@ class FIMState:
         """Get current queue size"""
         with self.lock:
             return len(self.state['event_queue'])
-
+ 
     def set_deregistered(self, status):
         """Set the deregistered flag"""
         with self.lock:
             self.state['is_deregistered'] = status
             self.save()
-
+ 
     def is_deregistered(self):
         """Check if this machine is deregistered"""
         return self.state.get('is_deregistered', False)
+
+    def set_server_public_key(self, public_key_pem):
+        """Update the server's public key and re-initialize verifier"""
+        with self.lock:
+            self.state['server_public_key'] = public_key_pem
+            self.server_verifier.load_public_key(public_key_pem)
+            self.save()

@@ -18,6 +18,7 @@ class FIMConfig:
         self.server_url = SERVER_URL
         self.watch_dir = watch_dir
         self.pid_file = pid_file
+        self.server_cert = None # Path to server certificate for pinning
         
     def setup_logging(self, log_file):
         """Setup logging with provided log file path"""

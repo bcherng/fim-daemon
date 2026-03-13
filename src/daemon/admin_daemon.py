@@ -23,19 +23,25 @@ if sys.platform == 'win32':
         import win32pipe
         import win32file
         import win32security
+        import winreg
     except ImportError:
         pass
+
+import subprocess
 
 # Add core to path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__))))
 
+if sys.platform == 'win32':
+    from platform_specific.windows_config import WindowsFIMConfig
+else:
+    from platform_specific.linux_config import LinuxFIMConfig
+
 def get_config(skip_logging=True):
     """Get platform-specific configuration"""
     if sys.platform == 'win32':
-        from platform_specific.windows_config import WindowsFIMConfig
         return WindowsFIMConfig(skip_logging=skip_logging)
     else:
-        from platform_specific.linux_config import LinuxFIMConfig
         return LinuxFIMConfig()
 
 def get_system_config_path():
@@ -58,8 +64,6 @@ if sys.platform == 'win32':
             self._next_pipe()
             
         def _next_pipe(self):
-            import win32security
-            import win32pipe
             
             sd = win32security.SECURITY_DESCRIPTOR()
             sd.Initialize()
@@ -80,7 +84,6 @@ if sys.platform == 'win32':
             )
 
         def accept(self):
-            import win32pipe
             
             # This blocks until a client connects
             win32pipe.ConnectNamedPipe(self._pipe_handle, None)
@@ -184,20 +187,17 @@ class FIMAdminDaemon:
         self.logger.warning("Uninstallation triggered via Admin Daemon")
         
         if sys.platform == 'win32':
-            import winreg
             try:
                 uninstall_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{FIM-CLIENT-99E7-4562-AB89-1234567890AB}_is1"
                 with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, uninstall_key) as key:
                     uninstall_string = winreg.QueryValueEx(key, "QuietUninstallString")[0]
                     if uninstall_string:
-                        import subprocess
                         subprocess.Popen(uninstall_string, shell=True)
                         return {"success": True, "message": "Uninstallation started"}
             except Exception as e:
                 self.logger.error(f"Failed to find or launch Windows uninstaller: {e}")
                 return {"success": False, "error": f"Failed to find uninstaller: {str(e)}"}
         else:
-            import subprocess
             try:
                 subprocess.Popen("apt-get remove -y fim-client || dpkg -r fim-client", shell=True)
                 return {"success": True, "message": "Uninstallation started"}
@@ -211,9 +211,6 @@ class FIMAdminDaemon:
         try:
             # On Windows, conn is a raw handle (int)
             if sys.platform == 'win32' and isinstance(conn, int):
-                import win32file
-                import win32pipe
-                
                 # Use raw byte read/write to avoid multiprocessing.connection socket errors
                 self.logger.info("Handling Windows raw pipe client")
                 # hr, data = win32file.ReadFile(conn, 65536)
