@@ -1,34 +1,36 @@
-# FIM-Daemon
+# FIM-Daemon v1.1.0
 
-Cross-platform File Integrity Monitoring (FIM) Client. Real-time monitoring daemons for Windows and Linux.
+Cross-platform File Integrity Monitoring (FIM) Client. Real-time monitoring daemons for Windows and Linux with **Hardware-bound Asymmetric Signing**.
 
 ## About The Project
 
-This project is a revision of a Distributed File Integrity Monitoring (FIM) System designed to help organizations detect, track, and respond to file changes across multiple computers in real time. The system allows users to download a lightweight monitoring program (daemon) from a secure web application hosted on Vercel. In its first release, the program will support Windows, with Linux support planned for later versions.
+This project is a Distributed File Integrity Monitoring (FIM) System designed to detect, track, and respond to file changes in real time. The Milestone 4 release (v1.1.0) introduces significant security upgrades, transforming the system into a production-ready platform.
 
-The installer, created using InnoSetup, makes deployment simple—users only need to choose a directory to monitor, and the setup automatically handles all configurations, dependencies, and service registration. Once installed, the daemon continuously watches for file changes using built-in system libraries (Watchdog). For every file scan or detected modification, the daemon computes a SHA-256 cryptographic hash, a unique digital fingerprint of the file’s contents. These hashes are then structured using a Merkle tree, where each file’s hash contributes to a combined “root” hash that summarizes the entire directory’s state. When updates occur, the system recalculates only the affected portions of this structure, generating a minimal hash update to save processing time and network bandwidth. The updated hash and timestamp are securely transmitted to the server via encrypted HTTPS APIs for storage and comparison in the Postgres database.
+The daemon watches for file changes using system libraries (Watchdog) and computes SHA-256 cryptographic hashes. These are structured in a Merkle tree to summarize the directory state. All communications are now authenticated via **Dual Asymmetric RSA Signing**, ensuring that every heartbeat and event report is tamper-proof and verified by the server.
 
-All collected data is stored in a protected Vercel Postgres instance. To ensure data integrity, the system verifies each upload using authentication tokens that confirm the daemon’s identity and prevent tampering or spoofing. Access to the web dashboard is restricted to authorized administrators through secure login credentials and role-based authentication.
-
-Through this dashboard, administrators can view detailed logs of every file change on each registered machine, identify potential security breaches, and receive alerts if a daemon is uninstalled or disabled. Future updates will include administrative tools to remotely revert unauthorized file changes, synchronize important directories across company systems, and approve updates to monitored files in a controlled way.
-
-By combining real-time monitoring, encrypted communication, and authenticated access, this revised system strengthens an organization’s ability to detect, verify, and respond to potential threats—helping maintain both operational stability and data security across distributed environments.
+Client-side state is protected using **Data-at-Rest Encryption**:
+- **Windows**: Uses DPAPI (`win32crypt`) to bind state to the user/machine.
+- **Linux**: Uses machine-bound encryption derived from `/etc/machine-id` with the Fernet cipher.
 
 ## Features
 
-*   Real-time file monitoring via Watchdog
-*   Efficienct Merkle Tree implementation to reduce hashing time
-*   One-stop Windows In/unstaller with InnoSetup
+*   **Asymmetric Message Signing**: RSA-2048 with PSS padding for all event/heartbeat reports.
+*   **Data-at-Rest Encryption**: Sensitive state (public keys, hash chains) is encrypted locally (DPAPI/Fernet).
+*   **Real-time file monitoring**: via Watchdog and efficient Merkle Tree updates.
+*   **Certificate Pinning**: Hardened SSL verification in `NetworkClient`.
+*   **Cross-Platform**: Full support for Windows and Linux environments.
 
 ## Built With
 
 *   Python 3.12
+*   Cryptography (hazmat primitives)
+*   PyWin32 (Windows specific)
 
 ## Installation
 
-1.  Download latest installers via Github Release, or through https://fim-distribution.vercel.app/
-2.  Run the Windows .exe installer and follow the prompt - or install the debian package via sudo dpkg -r fim-daemon-v{version}_amd64.deb
-
+1.  Download latest installers via Github Release, or through the [FIM Dashboard](https://fim-distribution.vercel.app/).
+2.  **Windows**: Run the `.exe` installer.
+3.  **Linux**: Install the debian package: `sudo dpkg -i fim-daemon-v1.1.0_amd64.deb`.
 
 ## Usage
-The daemon will register as a persistent service and monitor the selected directory in real-time and upload hash and timestamp upon file change detection. Administrators can then log-in via https://fim-distribution.vercel.app/ to access and review logs.
+The daemon registers as a persistent service. Once running, it monitors the selected directory and uploads signed hash chains to the server. Administrators can monitor status and review logs via the [web dashboard](https://fim-distribution.vercel.app/).
