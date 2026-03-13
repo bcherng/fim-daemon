@@ -173,10 +173,15 @@ class FIMAdminDaemon:
                 
         sys_config['watch_directory'] = new_path
         
+        # Remove old signature if present to ensure the hash is calculated purely on the config values
+        sys_config.pop('_signature', None)
+        
         try:
             # Generate a signature for the config to prevent manual tampering
             config_str = json.dumps(sys_config, sort_keys=True)
+            self.logger.info(f"Hashing Config string: {repr(config_str)}")
             signature = self._generate_config_signature(config_str)
+            self.logger.info(f"Generated Signature: {signature}")
             sys_config['_signature'] = signature
             
             with open(self.sys_config_path, 'w') as f:
@@ -196,6 +201,7 @@ class FIMAdminDaemon:
         # It's better to use the same logic as FIMState._get_machine_id_key
         # but since we are in AdminDaemon, we can just hash a known machine attribute.
         machine_key = self._get_machine_key()
+        self.logger.info(f"Using Machine Key: {machine_key.hex()}")
         
         hasher = hashlib.sha256()
         hasher.update(machine_key)
