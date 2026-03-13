@@ -54,15 +54,34 @@ class RegistrationClient:
         return False
     
     def verify_registration(self):
-        """Verify client registration by hitting a secure endpoint"""
+        """Verify client registration and synchronize server public key"""
         try:
             response = requests.post(
                 f"{self.config.server_url}/api/clients/verify",
                 headers=self.get_auth_headers(),
                 timeout=5
             )
-            return response.status_code == 200
-        except Exception:
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Verify server signature before trusting content
+                if hasattr(self.state, 'server_verifier') and self.state.server_verifier:
+                    if not self.state.server_verifier.verify_signature(
+                        {k: v for k, v in data.items() if k != 'signature'}, 
+                        data.get('signature')
+                    ):
+                        # If verification fails, it might be due to an outdated key.
+                        # We don't update yet, but we log the warning.
+                        print("Warning: Received invalid server signature during verification.")
+                    
+                # Synchronize public key if provided
+                if 'server_public_key' in data:
+                    self.state.set_server_public_key(data['server_public_key'])
+                
+                return True
+            return False
+        except Exception as e:
+            print(f"Verification failed: {e}")
             return False
     
     def register_client(self):

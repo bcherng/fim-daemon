@@ -80,7 +80,7 @@ class DeviceSigner:
             payload_string.encode('utf-8'),
             padding.PSS(
                 mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
+                salt_length=32
             ),
             hashes.SHA256()
         )
@@ -123,7 +123,7 @@ class ServerVerifier:
                 payload_string.encode('utf-8'),
                 padding.PSS(
                     mgf=padding.MGF1(hashes.SHA256()),
-                    salt_length=padding.PSS.MAX_LENGTH
+                    salt_length=32
                 ),
                 hashes.SHA256()
             )
