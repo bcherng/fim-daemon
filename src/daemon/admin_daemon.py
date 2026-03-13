@@ -403,6 +403,42 @@ if sys.platform == 'win32':
             )
             self.daemon.run()
 
+def try_acquire_admin_lock():
+    """Attempt to acquire a single-instance OS lock for the Admin Daemon"""
+    import sys
+    if sys.platform == 'win32':
+        import win32event
+        import win32api
+        import winerror
+        mutex_name = "Global\\FIM_Admin_Daemon_Mutex"
+        mutex = win32event.CreateMutex(None, False, mutex_name)
+        if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+            return False, mutex
+        return True, mutex
+    else:
+        import os
+        import fcntl
+        lock_file_path = "/var/run/fim_admin.pid"
+        try:
+            lock_file = open(lock_file_path, 'w')
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_file.write(str(os.getpid()))
+            lock_file.flush()
+            return True, lock_file
+        except (IOError, OSError):
+            return False, None
+
+def run_daemon():
+    """Helper to run daemon with single-instance lock"""
+    acquired, lock_obj = try_acquire_admin_lock()
+    if not acquired:
+        import logging
+        logging.critical("FIM Admin Daemon is already running. Exiting.")
+        sys.exit(1)
+        
+    daemon = FIMAdminDaemon()
+    daemon.run()
+
 if __name__ == '__main__':
     if sys.platform == 'win32':
         if len(sys.argv) > 1 and sys.argv[1] in ['install', 'update', 'remove', 'start', 'stop', 'restart', 'status']:
@@ -411,10 +447,10 @@ if __name__ == '__main__':
             try:
                 servicemanager.Initialize()
                 servicemanager.PrepareToHostSingle(FIMAdminService)
+                # The service manager has its own single-instance guarantees,
+                # but our SvcDoRun will also acquire the mutex just in case.
                 servicemanager.StartServiceCtrlDispatcher()
             except:
-                daemon = FIMAdminDaemon()
-                daemon.run()
+                run_daemon()
     else:
-        daemon = FIMAdminDaemon()
-        daemon.run()
+        run_daemon()

@@ -37,8 +37,35 @@ def get_config():
         return LinuxFIMConfig()
 
 
+def try_acquire_client_lock():
+    """Attempt to acquire a single-instance OS lock"""
+    if sys.platform == 'win32':
+        import ctypes
+        mutex_name = "Global\\FIM_Client_Singleton_Mutex"
+        # 0x001F0001 is MUTEX_ALL_ACCESS, but we just need to try creating it
+        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+        if ctypes.windll.kernel32.GetLastError() == 183: # ERROR_ALREADY_EXISTS
+            return False, mutex
+        return True, mutex
+    else:
+        import fcntl
+        lock_file_path = os.path.join(get_state_directory(), "client.lock")
+        os.makedirs(os.path.dirname(lock_file_path), exist_ok=True)
+        try:
+            lock_file = open(lock_file_path, 'w')
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True, lock_file
+        except (IOError, OSError):
+            return False, None
+
 def main():
     """Main entry point"""
+    # Enforce exactly-one client process
+    acquired, lock_obj = try_acquire_client_lock()
+    if not acquired:
+        print("FIM Client is already running. Exiting.")
+        sys.exit(0)
+        
     # Initialize configuration
     config = get_config()
     
