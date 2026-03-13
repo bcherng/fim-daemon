@@ -258,7 +258,7 @@ class FIMClientGUI:
                         'root_hash': new_root_hash,
                         'last_valid_hash': old_hash, # Chain to old state
                         'merkle_proof': None,
-                        'file_count': file_count,
+                        'tracked_file_count': file_count,
                         'timestamp': datetime.now().isoformat()
                     })
                     

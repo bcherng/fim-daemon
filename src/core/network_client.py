@@ -31,6 +31,8 @@ class NetworkClient:
                 if not self._verify_server_response(data):
                     return {'success': False, 'rejected': True, 'reason': 'Security Error: Invalid Server Signature'}
 
+                self.connection_mgr.connected = True
+                self.connection_mgr.current_backoff = 1
                 self.gui_queue.put({'type': 'status', 'connected': True})
                 return {
                     'success': True,
@@ -101,6 +103,8 @@ class NetworkClient:
                 data = response.json()
                 if not self._verify_server_response(data):
                     return False
+                self.connection_mgr.connected = True
+                self.connection_mgr.current_backoff = 1
                 self.gui_queue.put({'type': 'status', 'connected': True})
                 return True
             return False
@@ -117,7 +121,7 @@ class NetworkClient:
                 f"{self.config.server_url}/api/clients/heartbeat",
                 headers=self.connection_mgr.get_auth_headers(),
                 json={
-                    'file_count': file_count,
+                    'tracked_file_count': file_count,
                     'current_root_hash': root_hash,
                     'boot_id': boot_id,
                     'timestamp': datetime.now().isoformat(),
@@ -131,6 +135,8 @@ class NetworkClient:
                 data = response.json()
                 if not self._verify_server_response(data):
                     return False
+                self.connection_mgr.connected = True
+                self.connection_mgr.current_backoff = 1
                 self.gui_queue.put({'type': 'status', 'connected': True})
                 return True
             elif response.status_code == 403:
