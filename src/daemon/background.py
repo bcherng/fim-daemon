@@ -177,6 +177,13 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_ev
                         'timestamp': datetime.now().isoformat()
                     })
                     tamper_reported = True
+                    
+                    # Force immediate upload of this critical security event
+                    if conn_mgr.connected:
+                        threading.Thread(
+                            target=event_handler.process_event_queue,
+                            daemon=True
+                        ).start()
             else:
                 tamper_reported = False
                 
