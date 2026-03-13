@@ -225,56 +225,61 @@ class FIMClientGUI:
                     
                     # Background the heavy lifting to keep UI responsive
                     def run_async_change():
-                        self.add_log(datetime.now().isoformat(), "Processing directory change in background...", "info")
-                        
-                        # Queue directory_unselected event for OLD directory
-                        if old_dir:
+                        try:
+                            self.queue.put({'type': 'log', 'timestamp': datetime.now().isoformat(), 'message': "Processing directory change in background...", 'status': 'info'})
+                            
+                            # Queue directory_unselected event for OLD directory
+                            if old_dir:
+                                self.state.enqueue_event({
+                                    'client_id': self.config.host_id,
+                                    'event_type': 'directory_unselected',
+                                    'file_path': old_dir,
+                                    'old_hash': old_hash, # Current valid hash
+                                    'new_hash': old_hash, # No change to content
+                                    'root_hash': old_hash,
+                                    'last_valid_hash': old_hash,
+                                    'merkle_proof': None,
+                                    'timestamp': datetime.now().isoformat()
+                                })
+                            
+                            # Stop current monitoring
+                            self.stop_monitoring()
+                            
+                            # Calculate initial hash for NEW directory
+                            try:
+                                new_tree, files = build_initial_tree(directory)
+                                new_root_hash = new_tree[0][0].hex() if new_tree else None
+                                file_count = len(files) if files else 0
+                            except Exception as e:
+                                self.queue.put({'type': 'log', 'timestamp': datetime.now().isoformat(), 'message': f"Error building tree: {e}", 'status': 'error'})
+                                new_root_hash = None
+                                file_count = 0
+
+                            # Queue directory_selected event for NEW directory
                             self.state.enqueue_event({
                                 'client_id': self.config.host_id,
-                                'event_type': 'directory_unselected',
-                                'file_path': old_dir,
-                                'old_hash': old_hash, # Current valid hash
-                                'new_hash': old_hash, # No change to content
-                                'root_hash': old_hash,
+                                'event_type': 'directory_selected',
+                                'file_path': directory,
+                                'old_hash': new_root_hash,
+                                'new_hash': new_root_hash,
+                                'root_hash': new_root_hash,
                                 'last_valid_hash': old_hash,
                                 'merkle_proof': None,
+                                'tracked_file_count': file_count,
                                 'timestamp': datetime.now().isoformat()
                             })
-                        
-                        # Stop current monitoring
-                        self.stop_monitoring()
-                        
-                        # Calculate initial hash for NEW directory
-                        try:
-                            new_tree, files = build_initial_tree(directory)
-                            new_root_hash = new_tree[0][0].hex() if new_tree else None
-                            file_count = len(files) if files else 0
+                            
+                            # Wait for old daemon loop to exit completely to prevent race conditions
+                            if hasattr(self, 'daemon_thread') and self.daemon_thread and self.daemon_thread.is_alive():
+                                self.queue.put({'type': 'log', 'timestamp': datetime.now().isoformat(), 'message': "Waiting for previous monitor to exit...", 'status': 'info'})
+                                self.daemon_thread.join(timeout=10.0)
+                            
+                            # Trigger monitoring start from the main GUI thread via queue
+                            self.queue.put({'type': 'restart_monitoring', 'directory': directory})
                         except Exception as e:
-                            self.add_log(datetime.now().isoformat(), f"Error building tree: {e}", "error")
-                            new_root_hash = None
-                            file_count = 0
-
-                        # Queue directory_selected event for NEW directory
-                        self.state.enqueue_event({
-                            'client_id': self.config.host_id,
-                            'event_type': 'directory_selected',
-                            'file_path': directory,
-                            'old_hash': new_root_hash,
-                            'new_hash': new_root_hash,
-                            'root_hash': new_root_hash,
-                            'last_valid_hash': old_hash,
-                            'merkle_proof': None,
-                            'tracked_file_count': file_count,
-                            'timestamp': datetime.now().isoformat()
-                        })
-                        
-                        # Wait for old daemon loop to exit completely to prevent race conditions
-                        if hasattr(self, 'daemon_thread') and self.daemon_thread and self.daemon_thread.is_alive():
-                            self.add_log(datetime.now().isoformat(), "Waiting for previous monitor to exit...", "info")
-                            self.daemon_thread.join(timeout=10.0)
-                        
-                        # Trigger monitoring start from the main GUI thread to avoid Tkinter thread issues
-                        self.root.after(100, lambda: self.set_monitoring_directory(directory))
+                            import traceback
+                            self.queue.put({'type': 'log', 'timestamp': datetime.now().isoformat(), 'message': f"Fatal error in background thread: {e}", 'status': 'error'})
+                            print(f"Fatal error in run_async_change:\n{traceback.format_exc()}")
 
                     threading.Thread(target=run_async_change, daemon=True).start()
             else:
@@ -358,6 +363,8 @@ class FIMClientGUI:
                     self.handle_deregistration(msg.get('message'))
                 elif msg['type'] == 'deregistered':
                     self.handle_deregistration(msg.get('message'))
+                elif msg['type'] == 'restart_monitoring':
+                    self.set_monitoring_directory(msg['directory'])
         except queue.Empty:
             pass
         
