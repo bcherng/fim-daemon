@@ -107,6 +107,8 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_ev
     heartbeat_interval = 360  # 6 minutes
     last_heartbeat = 0
     
+    tamper_reported = False
+    
     try:
         while True:
             if stop_event and stop_event.is_set():
@@ -153,13 +155,30 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_ev
             
             # Actually, let's just check it every 10 seconds right before the granular sleep
             if state.get_watch_directory() is None:
-                gui_queue.put({
-                    'type': 'log',
-                    'timestamp': datetime.now().isoformat(),
-                    'message': 'SECURITY ALERT: system_config.json compromised. Stopping daemon.',
-                    'status': 'error'
-                })
-                break
+                if not tamper_reported:
+                    gui_queue.put({
+                        'type': 'log',
+                        'timestamp': datetime.now().isoformat(),
+                        'message': 'SECURITY ALERT: system_config.json compromised. Maintaining current valid state and syncing with server.',
+                        'status': 'error'
+                    })
+                    
+                    # Enqueue a tampered event to sync state
+                    current_hash = state.get_last_valid_hash()
+                    state.enqueue_event({
+                        'client_id': config.host_id,
+                        'event_type': 'config_tampered',
+                        'file_path': 'C:/ProgramData/FIMClient/system_config.json',
+                        'old_hash': current_hash,
+                        'new_hash': current_hash,
+                        'root_hash': current_hash,
+                        'last_valid_hash': current_hash,
+                        'merkle_proof': None,
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    tamper_reported = True
+            else:
+                tamper_reported = False
                 
             # Granular sleep to be responsive to stop_event (20 * 0.5s = 10s)
             for _ in range(20):
