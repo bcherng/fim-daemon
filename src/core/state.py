@@ -240,6 +240,9 @@ class FIMState:
                 event['last_valid_hash'] = self.get_last_valid_hash()
  
             # Assign and increment monotonic event ID
+            if 'last_event_id' not in self.state:
+                self.state['last_event_id'] = 0
+                
             if 'id' not in event:
                 self.state['last_event_id'] += 1
                 event['id'] = self.state['last_event_id']
