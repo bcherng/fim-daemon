@@ -154,11 +154,13 @@ class FIMClientGUI:
             self.start_monitoring()
 
     def stop_monitoring(self):
-        """Signal daemon to stop"""
+        """Signal daemon to stop without blocking the UI thread"""
         if self.daemon_thread and self.daemon_thread.is_alive():
              if hasattr(self, 'stop_event'):
                  self.stop_event.set()
-                 self.daemon_thread.join(timeout=2.0)
+                 # We do NOT join() here as it hangs the GUI thread during directory changes.
+                 # The thread will exit naturally when it next checks stop_event.
+                 self.daemon_thread = None
     
     def change_directory(self):
         """Change monitoring directory with admin verification"""

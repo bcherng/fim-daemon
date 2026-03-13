@@ -184,6 +184,12 @@ class NetworkClient:
             
         self.config.logger.error("MODIFIED SERVER RESPONSE DETECTED! Signature verification failed.")
         self.gui_queue.put({
+            'type': 'log',
+            'timestamp': datetime.now().isoformat(),
+            'message': '✗ Security Error: Server signature verification failed',
+            'status': 'error'
+        })
+        self.gui_queue.put({
             'type': 'status_message', 
             'message': 'SECURITY ALERT: Received invalid server signature!',
             'level': 'error'
