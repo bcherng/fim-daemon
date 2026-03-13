@@ -32,6 +32,7 @@ class FIMState:
         """Initialize state manager and load persistent state from disk"""
         self.state_file = state_file
         self.lock = threading.RLock()
+        self._last_disk_hash = None
         self.state = self._load_state()
         self.boot_id = uuid.uuid4().hex
         state_dir = os.path.dirname(state_file)
@@ -47,6 +48,8 @@ class FIMState:
             try:
                 with open(self.state_file, 'rb') as f:
                     data = f.read()
+                
+                self._last_disk_hash = hashlib.sha256(data).hexdigest()
                 
                 if data and data[0:1] != b'{':
                     data = self._decrypt(data)
@@ -77,10 +80,28 @@ class FIMState:
                 with open(self.state_file, 'wb') as f:
                     f.write(encrypted_data)
                 
+                self._last_disk_hash = hashlib.sha256(encrypted_data).hexdigest()
+                
                 if sys.platform != 'win32':
                     os.chmod(self.state_file, 0o600)
         except Exception as e:
             print(f"Failed to save state: {e}")
+
+    def check_disk_tampering(self):
+        """Check if state.json was modified externally"""
+        if not self.state_file or not os.path.exists(self.state_file):
+            return False
+            
+        with self.lock:
+            try:
+                with open(self.state_file, 'rb') as f:
+                    raw_data = f.read()
+                current_hash = hashlib.sha256(raw_data).hexdigest()
+                if self._last_disk_hash and current_hash != self._last_disk_hash:
+                    return True
+            except:
+                pass
+        return False
 
     def _encrypt(self, data):
         """Encrypt data using Windows DPAPI or Linux Fernet"""

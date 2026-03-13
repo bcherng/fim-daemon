@@ -187,6 +187,34 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_ev
             else:
                 tamper_reported = False
                 
+            # Check if our own encrypted event queue (state.json) was modified externally
+            if state.check_disk_tampering():
+                gui_queue.put({
+                    'type': 'log',
+                    'timestamp': datetime.now().isoformat(),
+                    'message': 'SECURITY ALERT: Local event queue (state.json) was externally modified! Reverting to trusted memory state.',
+                    'status': 'error'
+                })
+                
+                current_hash = state.get_last_valid_hash()
+                state.enqueue_event({
+                    'client_id': config.host_id,
+                    'event_type': 'state_tampered',
+                    'file_path': state.state_file,
+                    'old_hash': current_hash,
+                    'new_hash': current_hash,
+                    'root_hash': current_hash,
+                    'last_valid_hash': current_hash,
+                    'merkle_proof': None,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+                if conn_mgr.connected:
+                    threading.Thread(
+                        target=event_handler.process_event_queue,
+                        daemon=True
+                    ).start()
+                
             # Granular sleep to be responsive to stop_event (20 * 0.5s = 10s)
             for _ in range(20):
                 if stop_event and stop_event.is_set():
