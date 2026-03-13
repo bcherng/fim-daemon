@@ -140,12 +140,10 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_ev
                         daemon=True
                     ).start()
             
-            # Heartbeat
+            # Heartbeat (submit even if it fails, reset timer regardless)
             if conn_mgr.connected and current_time - last_heartbeat >= heartbeat_interval:
-                if event_handler.send_heartbeat():
-                    last_heartbeat = current_time
-                else:
-                    gui_queue.put({'type': 'status', 'connected': False})
+                event_handler.send_heartbeat()
+                last_heartbeat = current_time
             
             time.sleep(10)
     except KeyboardInterrupt:

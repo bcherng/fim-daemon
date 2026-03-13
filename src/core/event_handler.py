@@ -69,6 +69,8 @@ class FIMEventHandler:
                     f"✓ Heartbeat (files: {len(self.files)}, pending: {self.file_monitor.state.get_queue_size()})", 
                     "success"
                 )
+            else:
+                self.log_to_gui("✗ Heartbeat failed (check connectivity)", "warning")
             return success
         except Exception as e:
             self.log_to_gui(f"⚠ Heartbeat failed: {str(e)}", "warning")

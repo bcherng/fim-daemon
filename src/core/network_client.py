@@ -150,15 +150,17 @@ class NetworkClient:
                     })
                     self.connection_mgr.mark_disconnected()
                     return False
-            elif response.status_code == 401:
-                data = response.json()
-                self._verify_server_response(data)
-                if "not registered" in data.get('error', '').lower():
-                    self.gui_queue.put({'type': 'removal_detected'})
-                self.connection_mgr.mark_disconnected()
+            else:
+                try:
+                    data = response.json()
+                    self._verify_server_response(data)
+                    error_msg = data.get('error', response.text)
+                except:
+                    error_msg = response.text
+                self.config.logger.error(f"Heartbeat failed with {response.status_code}: {error_msg}")
         except Exception as e:
+            self.config.logger.error(f"Heartbeat exception: {e}")
             self.connection_mgr.mark_disconnected()
-            raise e
         
         return False
 
