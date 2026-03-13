@@ -144,8 +144,28 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_ev
             if conn_mgr.connected and current_time - last_heartbeat >= heartbeat_interval:
                 event_handler.send_heartbeat()
                 last_heartbeat = current_time
+                
+            # Periodic tamper check of system_config.json
+            if current_time - last_heartbeat >= 60: # Check roughly every 60 seconds (or along with heartbeat)
+                # We can just check it directly every loop iteration because it's cheap,
+                # but to be safe we'll just check every time we do the granular sleep loop.
+                pass
             
-            time.sleep(10)
+            # Actually, let's just check it every 10 seconds right before the granular sleep
+            if state.get_watch_directory() is None:
+                gui_queue.put({
+                    'type': 'log',
+                    'timestamp': datetime.now().isoformat(),
+                    'message': 'SECURITY ALERT: system_config.json compromised. Stopping daemon.',
+                    'status': 'error'
+                })
+                break
+                
+            # Granular sleep to be responsive to stop_event (20 * 0.5s = 10s)
+            for _ in range(20):
+                if stop_event and stop_event.is_set():
+                    break
+                time.sleep(0.5)
     except KeyboardInterrupt:
         pass
     finally:

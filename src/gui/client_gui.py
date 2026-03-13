@@ -223,50 +223,60 @@ class FIMClientGUI:
                     self.add_log(datetime.now().isoformat(), f"Changed by: {username}", "info")
                     self.add_log(datetime.now().isoformat(), "═══════════════════════════", "warning")
                     
-                    # Queue directory_unselected event for OLD directory
-                    if old_dir:
+                    # Background the heavy lifting to keep UI responsive
+                    def run_async_change():
+                        self.add_log(datetime.now().isoformat(), "Processing directory change in background...", "info")
+                        
+                        # Queue directory_unselected event for OLD directory
+                        if old_dir:
+                            self.state.enqueue_event({
+                                'client_id': self.config.host_id,
+                                'event_type': 'directory_unselected',
+                                'file_path': old_dir,
+                                'old_hash': old_hash, # Current valid hash
+                                'new_hash': old_hash, # No change to content
+                                'root_hash': old_hash,
+                                'last_valid_hash': old_hash,
+                                'merkle_proof': None,
+                                'timestamp': datetime.now().isoformat()
+                            })
+                        
+                        # Stop current monitoring
+                        self.stop_monitoring()
+                        
+                        # Calculate initial hash for NEW directory
+                        try:
+                            new_tree, files = build_initial_tree(directory)
+                            new_root_hash = new_tree[0][0].hex() if new_tree else None
+                            file_count = len(files) if files else 0
+                        except Exception as e:
+                            self.add_log(datetime.now().isoformat(), f"Error building tree: {e}", "error")
+                            new_root_hash = None
+                            file_count = 0
+
+                        # Queue directory_selected event for NEW directory
                         self.state.enqueue_event({
                             'client_id': self.config.host_id,
-                            'event_type': 'directory_unselected',
-                            'file_path': old_dir,
-                            'old_hash': old_hash, # Current valid hash
-                            'new_hash': old_hash, # No change to content
-                            'root_hash': old_hash,
+                            'event_type': 'directory_selected',
+                            'file_path': directory,
+                            'old_hash': new_root_hash,
+                            'new_hash': new_root_hash,
+                            'root_hash': new_root_hash,
                             'last_valid_hash': old_hash,
-                            'merkle_proof': None, # Not applicable for root lifecycle events
+                            'merkle_proof': None,
+                            'tracked_file_count': file_count,
                             'timestamp': datetime.now().isoformat()
                         })
-                    
-                    # Stop current monitoring
-                    self.stop_monitoring()
-                    
-                    # Calculate initial hash for NEW directory
-                    try:
-                        new_tree, files = build_initial_tree(directory)
-                        new_root_hash = new_tree[0][0].hex() if new_tree else None
-                        file_count = len(files) if files else 0
-                    except Exception as e:
-                        self.add_log(datetime.now().isoformat(), f"Error building tree: {e}", "error")
-                        new_root_hash = None
-                        file_count = 0
+                        
+                        # Wait for old daemon loop to exit completely to prevent race conditions
+                        if hasattr(self, 'daemon_thread') and self.daemon_thread and self.daemon_thread.is_alive():
+                            self.add_log(datetime.now().isoformat(), "Waiting for previous monitor to exit...", "info")
+                            self.daemon_thread.join(timeout=10.0)
+                        
+                        # Trigger monitoring start from the main GUI thread to avoid Tkinter thread issues
+                        self.root.after(100, lambda: self.set_monitoring_directory(directory))
 
-                    # Queue directory_selected event for NEW directory
-                    self.state.enqueue_event({
-                        'client_id': self.config.host_id,
-                        'event_type': 'directory_selected',
-                        'file_path': directory,
-                        'old_hash': new_root_hash,
-                        'new_hash': new_root_hash,
-                        'root_hash': new_root_hash,
-                        'last_valid_hash': old_hash, # Chain to old state
-                        'merkle_proof': None,
-                        'tracked_file_count': file_count,
-                        'timestamp': datetime.now().isoformat()
-                    })
-                    
-                    # TRIGGER monitoring start but DO NOT update last_valid_hash here.
-                    # It will be updated automatically in queue_manager when the server acknowledges.
-                    self.set_monitoring_directory(directory)
+                    threading.Thread(target=run_async_change, daemon=True).start()
             else:
                 messagebox.showerror("Authentication Failed", "Invalid credentials")
         
@@ -287,6 +297,7 @@ class FIMClientGUI:
         
         watch_dir = self.state.get_watch_directory()
         if not watch_dir:
+            self.add_log(datetime.now().isoformat(), "SECURITY ALERT: system_config.json compromised or missing. Monitoring aborted.", "error")
             return
         
         from daemon.background import run_daemon_background

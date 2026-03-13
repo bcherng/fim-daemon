@@ -148,16 +148,75 @@ class FIMState:
         pass
         
     def get_watch_directory(self):
-        """Get the monitoring directory from system config"""
+        """Get the monitoring directory from system config with tamper protection"""
         sys_config_path = self._get_system_config_path()
         if os.path.exists(sys_config_path):
             try:
                 with open(sys_config_path, 'r') as f:
                     config = json.load(f)
-                    return config.get('watch_directory')
-            except Exception:
+                    
+                # Verify tamper protection signature
+                provided_signature = config.pop('_signature', None)
+                if provided_signature:
+                    # Recompute signature
+                    config_str = json.dumps(config, sort_keys=True)
+                    expected_signature = self._generate_config_signature(config_str)
+                    
+                    if provided_signature == expected_signature:
+                        return config.get('watch_directory')
+                    else:
+                        print("SECURITY ALERT: system_config.json signature mismatch! Tampering detected.")
+                        # Log it to the queue to send to server or display in GUI
+                        return None
+                else:
+                    # Legacy config without signature, or stripped signature
+                    print("SECURITY ALERT: system_config.json missing signature! Tampering detected.")
+                    return None
+                    
+            except Exception as e:
+                print(f"Error reading system config: {e}")
                 return None
         return None
+
+    def _generate_config_signature(self, data_str):
+        """Generate a signature for the configuration string using the same logic as AdminDaemon"""
+        import hashlib
+        import base64
+        import sys
+        
+        # Must match AdminDaemon._get_machine_key() exactly
+        def get_machine_key():
+            if sys.platform == 'win32':
+                import winreg
+                try:
+                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography") as key:
+                        machine_guid = winreg.QueryValueEx(key, "MachineGuid")[0]
+                        return hashlib.sha256(machine_guid.encode()).digest()
+                except Exception:
+                    pass
+            
+            machine_id_paths = ['/etc/machine-id', '/var/lib/dbus/machine-id']
+            machine_id = None
+            for path in machine_id_paths:
+                if os.path.exists(path):
+                    try:
+                        with open(path, 'r') as f:
+                            machine_id = f.read().strip()
+                        break
+                    except:
+                        continue
+            
+            if not machine_id:
+                import socket
+                machine_id = socket.gethostname()
+                
+            return hashlib.sha256(machine_id.encode()).digest()
+
+        machine_key = get_machine_key()
+        hasher = hashlib.sha256()
+        hasher.update(machine_key)
+        hasher.update(data_str.encode('utf-8'))
+        return base64.b64encode(hasher.digest()).decode('utf-8')
     
     # Hash management
     def update_last_valid_hash(self, hash_value, validation):

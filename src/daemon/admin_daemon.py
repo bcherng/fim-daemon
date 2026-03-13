@@ -174,6 +174,11 @@ class FIMAdminDaemon:
         sys_config['watch_directory'] = new_path
         
         try:
+            # Generate a signature for the config to prevent manual tampering
+            config_str = json.dumps(sys_config, sort_keys=True)
+            signature = self._generate_config_signature(config_str)
+            sys_config['_signature'] = signature
+            
             with open(self.sys_config_path, 'w') as f:
                 json.dump(sys_config, f, indent=2)
             self.logger.info(f"Successfully updated system watch directory to: {new_path}")
@@ -181,6 +186,51 @@ class FIMAdminDaemon:
         except Exception as e:
             self.logger.error(f"Failed to write system config: {e}")
             return {"success": False, "error": f"Failed to save configuration: {str(e)}"}
+            
+    def _generate_config_signature(self, data_str):
+        """Generate a signature for the configuration string"""
+        import hashlib
+        import base64
+        
+        # We need a stable key for HMAC.
+        # It's better to use the same logic as FIMState._get_machine_id_key
+        # but since we are in AdminDaemon, we can just hash a known machine attribute.
+        machine_key = self._get_machine_key()
+        
+        hasher = hashlib.sha256()
+        hasher.update(machine_key)
+        hasher.update(data_str.encode('utf-8'))
+        return base64.b64encode(hasher.digest()).decode('utf-8')
+        
+    def _get_machine_key(self):
+        """Get a stable machine key for signing the local config"""
+        import hashlib
+        if sys.platform == 'win32':
+            import winreg
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography") as key:
+                    machine_guid = winreg.QueryValueEx(key, "MachineGuid")[0]
+                    return hashlib.sha256(machine_guid.encode()).digest()
+            except Exception:
+                pass
+        
+        # Linux fallback or Windows failure
+        machine_id_paths = ['/etc/machine-id', '/var/lib/dbus/machine-id']
+        machine_id = None
+        for path in machine_id_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r') as f:
+                        machine_id = f.read().strip()
+                    break
+                except:
+                    continue
+        
+        if not machine_id:
+            import socket
+            machine_id = socket.gethostname()
+            
+        return hashlib.sha256(machine_id.encode()).digest()
 
     def handle_uninstall(self, payload):
         """Handle self-uninstallation"""
