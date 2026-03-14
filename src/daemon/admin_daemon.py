@@ -188,6 +188,14 @@ class FIMAdminDaemon:
 
     def _launch_monitor_thread(self, state, conn_mgr, watch_dir):
         from daemon.background import run_daemon_background
+        
+        # Guard against duplicate threads in the same process
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            self.logger.warning(f"Monitoring thread already alive for {watch_dir}; signaling stop before restart.")
+            self._monitor_stop.set()
+            # Wait briefly for it to exit
+            self._monitor_thread.join(timeout=3)
+            
         cb = self._make_log_callback()
         self._monitor_stop.clear()
         self._monitor_thread = threading.Thread(
