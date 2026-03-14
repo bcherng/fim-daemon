@@ -305,7 +305,7 @@ class FIMState:
             event['event_hash'] = hasher.hexdigest()
             
             if hasattr(self, 'device_signer') and self.device_signer:
-                payload_str = f"{event.get('id')}{event.get('prev_event_hash')}{event.get('last_valid_hash')}{event.get('new_hash')}"
+                payload_str = f"{event.get('id')}{event.get('prev_event_hash') or ''}{event.get('last_valid_hash') or ''}{event.get('new_hash') or ''}"
                 event['signature'] = self.device_signer.sign_payload(payload_str)
             
             self.state['event_queue'].append(event)
@@ -361,7 +361,7 @@ class FIMState:
                 
                 # 3. Verify RSA Signature (if signer available)
                 if hasattr(self, 'device_signer') and self.device_signer:
-                    payload_str = f"{event.get('id')}{event.get('prev_event_hash')}{event.get('last_valid_hash')}{event.get('new_hash')}"
+                    payload_str = f"{event.get('id')}{event.get('prev_event_hash') or ''}{event.get('last_valid_hash') or ''}{event.get('new_hash') or ''}"
                     signature = event.get('signature')
                     
                     if not signature:
