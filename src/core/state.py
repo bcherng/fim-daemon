@@ -11,6 +11,7 @@ import hashlib
 import base64
 from datetime import datetime
 from pathlib import Path
+import logging
 
 try:
     import win32crypt
@@ -28,8 +29,9 @@ from core.crypto import DeviceSigner, ServerVerifier
 class FIMState:
     """Thread-safe persistent state manager"""
     
-    def __init__(self, state_file):
+    def __init__(self, state_file, logger=None):
         """Initialize state manager and load persistent state from disk"""
+        self.logger = logger or logging.getLogger(__name__)
         self.state_file = state_file
         self.lock = threading.RLock()
         self._last_disk_hash = None

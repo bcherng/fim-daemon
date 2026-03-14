@@ -163,7 +163,7 @@ class FIMAdminDaemon:
             from core.state import FIMState
             from core.registration_client import RegistrationClient
 
-            self.state = FIMState(state_file)
+            self.state = FIMState(state_file, logger=self.logger)
             cb = self._make_log_callback()
             self.conn_mgr = RegistrationClient(self.config, self.state, log_callback=cb)
 
