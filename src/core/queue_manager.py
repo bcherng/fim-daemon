@@ -81,3 +81,7 @@ class EventQueueManager:
                         break
         finally:
             self.processing_queue = False
+            # Race condition check: if a new event was queued while we were exiting, 
+            # re-trigger processing to ensure it doesn't stay stuck.
+            if self.state.get_queue_size() > 0 and self.connection_mgr.connected and not self.deregistered:
+                threading.Thread(target=self.process_queue, daemon=True).start()

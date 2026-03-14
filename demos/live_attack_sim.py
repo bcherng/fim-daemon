@@ -44,7 +44,7 @@ def fim_processes_running():
     """Return True if the FIMAdmin service OR the fim_client GUI is currently running."""
     if sys.platform == 'win32':
         # Check 1: IPC Pipe (Definitive status for Admin Daemon)
-        if os.path.exists(r'\\.\pipe\FIMAdminIPC'):
+        if os.path.exists(r'\\.\pipe\fim_admin_ipc'):
             return True
 
         # Check 2: GUI Window Title
@@ -124,24 +124,34 @@ def kill_fim():
         # Stop SCM service
         if is_admin():
             subprocess.run(['sc', 'stop', 'FIMAdmin'], capture_output=True)
+            # Hard wait for service state to reach STOPPED
+            for _ in range(5):
+                res = subprocess.run(['sc', 'query', 'FIMAdmin'], capture_output=True, text=True)
+                if "STOPPED" in res.stdout:
+                    break
+                time.sleep(1)
         
-        # Ruthless termination of all Python/Service processes
-        # Targets: plain scripts, service wrappers, and subprocess trees
+        # Ruthless termination of any process holding our script or mutex
         ps_kill = (
             "Get-Process | Where-Object { "
-            "$_.Name -eq 'python' -or $_.Name -eq 'pythonservice' -or "
-            "$_.CommandLine -like '*admin_daemon.py*' -or "
-            "$_.CommandLine -like '*fim_client.py*' "
+            "$_.Name -match 'python' -or $_.Name -match 'pythonservice' -or "
+            "$_.CommandLine -match 'admin_daemon.py' -or "
+            "$_.CommandLine -match 'fim_client.py' "
             "} | Stop-Process -Force -ErrorAction SilentlyContinue"
         )
         subprocess.run(['powershell', '-NonInteractive', '-Command', ps_kill], capture_output=True)
         
-        # Final fallback using taskkill tree kill
+        # Cleanup residual mutex/pipes by killing anything remotely related
         subprocess.run(["taskkill", "/F", "/T", "/IM", "python.exe"], capture_output=True)
         subprocess.run(["taskkill", "/F", "/T", "/IM", "pythonservice.exe"], capture_output=True)
         
-        # Give service time to release mutexes and pipes
-        time.sleep(3)
+        time.sleep(2)
+        
+        # FINAL VERIFICATION: If the pipe or service is still alive, we cannot proceed safely
+        if os.path.exists(r'\\.\pipe\fim_admin_ipc'):
+            print("\n   [!] CRITICAL ERROR: FIMAdmin IPC pipe is STILL ALIVE after kill attempt.")
+            print("   [!] A ghost process is blocking the simulation. Please manually kill all 'python' processes.")
+            sys.exit(1)
     else:
         subprocess.run(["pkill", "-f", "fim_client.py"], capture_output=True)
         subprocess.run(["pkill", "-f", "admin_daemon.py"], capture_output=True)

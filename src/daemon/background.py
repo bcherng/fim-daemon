@@ -93,7 +93,9 @@ def run_daemon_background(config, state, conn_mgr, log_callback, watch_dir, stop
         threading.Thread(target=event_handler.process_event_queue, daemon=True).start()
 
     heartbeat_interval = 360
+    pulse_interval = 30
     last_heartbeat = 0
+    last_pulse = 0
     tamper_reported = False
 
     try:
@@ -103,6 +105,14 @@ def run_daemon_background(config, state, conn_mgr, log_callback, watch_dir, stop
                 break
 
             now = time.time()
+            
+            # ... [skip deregistration and reconnection checks] ...
+            
+            # Queue Pulse: if events are stuck, re-trigger processing periodically
+            if conn_mgr.connected and now - last_pulse >= pulse_interval:
+                if state.get_queue_size() > 0:
+                    event_handler.process_event_queue()
+                last_pulse = now
 
             # Deregistration check
             if event_handler.deregistered:
