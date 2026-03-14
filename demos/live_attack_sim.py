@@ -127,9 +127,17 @@ def kill_fim():
 
 
 def launch_fim():
-    """Launch admin daemon and GUI client in new console windows."""
+    """Start FIMAdmin service (if installed) and GUI client in new console windows."""
     if sys.platform == 'win32':
-        subprocess.Popen([sys.executable, DAEMON_PATH, "run"], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        # Check if FIMAdmin is a registered service
+        sc_check = subprocess.run(['sc', 'query', 'FIMAdmin'], capture_output=True, text=True, timeout=5)
+        if 'FIMAdmin' in sc_check.stdout:
+            # Service mode: restart via SCM
+            subprocess.run(['sc', 'start', 'FIMAdmin'], capture_output=True)
+        else:
+            # Dev mode: plain subprocess
+            subprocess.Popen([sys.executable, DAEMON_PATH, "run"], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        # GUI is always a plain process
         subprocess.Popen([sys.executable, CLIENT_PATH], creationflags=subprocess.CREATE_NEW_CONSOLE)
     else:
         subprocess.Popen([sys.executable, DAEMON_PATH, "run"])
