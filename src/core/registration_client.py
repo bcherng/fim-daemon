@@ -121,6 +121,7 @@ class RegistrationClient:
             
             if response.status_code == 200:
                 data = response.json()
+                self.logger.info(f"Registration successful for client: {self.config.host_id}")
                 if 'server_public_key' in data:
                     self.state.set_server_public_key(data['server_public_key'])
                 return True

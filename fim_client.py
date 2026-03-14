@@ -82,16 +82,19 @@ def main():
             _service_started = False
 
     if not _service_started:
-        print("Service 'FIMAdmin' not running or not found. Starting standalone Admin Daemon...")
-        if sys.platform == 'win32':
-            subprocess.Popen([sys.executable, daemon_path, "run"], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        if not os.path.exists(daemon_path):
+            print(f"Error: Daemon script not found at {daemon_path}")
         else:
-            subprocess.Popen([sys.executable, daemon_path, "run"])
+            print(f"Starting standalone Admin Daemon from: {daemon_path}")
+            if sys.platform == 'win32':
+                subprocess.Popen([sys.executable, daemon_path, "run"], creationflags=subprocess.CREATE_NEW_CONSOLE)
+            else:
+                subprocess.Popen([sys.executable, daemon_path, "run"])
 
     # Initialize configuration
     config = get_config()
 
-    # Create and run GUI — pure log subscriber, no local monitoring thread
+    # Create and run GUI
     gui = FIMClientGUI(config)
     gui.run()
 
