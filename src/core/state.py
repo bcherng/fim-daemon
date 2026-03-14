@@ -45,7 +45,7 @@ class FIMState:
         # Perform initial integrity check on existing queue
         self.queue_integrity_valid = self.validate_queue_integrity()
         if not self.queue_integrity_valid:
-            print("SECURITY ALERT: Local event queue integrity check failed! Queue may be tampered.")
+            self.logger.error("SECURITY ALERT: Local event queue integrity check failed! Queue may be tampered.")
     
     def _load_state(self):
         """Load state from disk or create default"""
@@ -342,7 +342,7 @@ class FIMState:
             for event in queue:
                 # 1. Verify Hash Chain
                 if event.get('prev_event_hash') != prev_hash:
-                    print(f"Queue Error: Hash chain break at event {event.get('id')}")
+                    self.logger.error(f"Queue Error: Hash chain break at event {event.get('id')}")
                     return False
                 
                 # 2. Recompute and verify event_hash
@@ -354,7 +354,7 @@ class FIMState:
                 recomputed_hash = hasher.hexdigest()
                 
                 if recomputed_hash != event.get('event_hash'):
-                    print(f"Queue Error: Event hash mismatch at event {event.get('id')}")
+                    self.logger.error(f"Queue Error: Event hash mismatch at event {event.get('id')}")
                     return False
                 
                 # 3. Verify RSA Signature (if signer available)
@@ -363,11 +363,9 @@ class FIMState:
                     signature = event.get('signature')
                     
                     if not signature:
-                        print(f"Queue Error: Missing signature at event {event.get('id')}")
+                        self.logger.error(f"Queue Error: Missing signature at event {event.get('id')}")
                         return False
                         
-                    # We need a way to verify our own signature. 
-                    # DeviceSigner currently only signs. Let's add verification or use the public key.
                     try:
                         from cryptography.hazmat.primitives.asymmetric import padding
                         from cryptography.hazmat.primitives import hashes
@@ -383,7 +381,7 @@ class FIMState:
                             hashes.SHA256()
                         )
                     except Exception as e:
-                        print(f"Queue Error: Signature verification failed at event {event.get('id')}: {e}")
+                        self.logger.error(f"Queue Error: Signature verification failed at event {event.get('id')}: {e}")
                         return False
                 
                 prev_hash = event.get('event_hash')
