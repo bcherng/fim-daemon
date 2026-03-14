@@ -13,7 +13,6 @@ __version__ = "1.2.0"
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from core.token_client import TokenClient
 from gui.client_gui import FIMClientGUI
 
 
@@ -78,12 +77,11 @@ def main():
         else:
             subprocess.Popen([sys.executable, daemon_path, "run"])
 
-    # Initialize configuration and admin token verifier (GUI only needs these)
+    # Initialize configuration
     config = get_config()
-    admin_verifier = TokenClient(config, None)
 
     # Create and run GUI — pure log subscriber, no local monitoring thread
-    gui = FIMClientGUI(config, admin_verifier)
+    gui = FIMClientGUI(config)
     gui.run()
 
 

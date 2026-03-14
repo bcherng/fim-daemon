@@ -17,9 +17,8 @@ from tkinter import ttk, scrolledtext, filedialog, messagebox
 class FIMClientGUI:
     """GUI for FIM Client — Purely a subscriber to the FIMAdmin service."""
 
-    def __init__(self, config, admin_verifier):
+    def __init__(self, config):
         self.config = config
-        self.admin_verifier = admin_verifier
         self.queue = queue.Queue()
         self._subscribe_stop = threading.Event()
 
@@ -125,32 +124,24 @@ class FIMClientGUI:
         password_entry.pack(padx=20, pady=5)
 
         def verify_and_change():
-            username = username_entry.get()
-            password = password_entry.get()
-
-            # 1. Verification token (GUI process)
-            token = self.admin_verifier.get_action_token(username, password, 'change_directory')
-            if token:
+            directory = filedialog.askdirectory(title="Select New Directory to Monitor")
+            if directory:
                 dialog.destroy()
-                directory = filedialog.askdirectory(title="Select New Directory to Monitor")
-                if directory:
-                    # 2. Path correction for Windows consistency
-                    directory = os.path.abspath(directory).replace('\\', '/')
-                    
-                    self.add_log(datetime.now().isoformat(), f"Requesting change to: {directory}", "warning")
-                    
-                    # 3. IPC call to service (privileged process)
-                    from core.admin_ipc_client import send_admin_request
-                    response = send_admin_request('change_directory', token, {'path': directory})
-                    
-                    if not response.get('success'):
-                        messagebox.showerror("Error", f"Service rejected change: {response.get('error')}")
-                    else:
-                        messagebox.showinfo("Success", f"Request accepted. The service will now scan {directory}")
-            else:
-                messagebox.showerror("Authentication Failed", "Invalid credentials or server unreachable")
+                # Path correction for Windows consistency
+                directory = os.path.abspath(directory).replace('\\', '/')
+                
+                self.add_log(datetime.now().isoformat(), f"Requesting change to: {directory}", "warning")
+                
+                # IPC call to service (privileged process)
+                from core.admin_ipc_client import send_admin_request
+                response = send_admin_request('change_directory', None, {'path': directory})
+                
+                if not response.get('success'):
+                    messagebox.showerror("Error", f"Service rejected change: {response.get('error')}")
+                else:
+                    messagebox.showinfo("Success", f"Request accepted. The service will now scan {directory}")
 
-        ttk.Button(dialog, text="Verify & Change", command=verify_and_change).pack(pady=10)
+        ttk.Button(dialog, text="Select Directory & Apply", command=verify_and_change).pack(pady=10)
 
     def start_log_subscriber(self):
         """Subscribe to the admin daemon's log broadcast channel."""
@@ -265,14 +256,12 @@ class FIMClientGUI:
         def do_uninstall():
             if messagebox.askyesno("Confirm", "Uninstall FIM entirely?"):
                 from core.admin_ipc_client import send_admin_request
-                token = self.admin_verifier.get_action_token(u_entry.get(), p_entry.get(), 'uninstall')
-                if token:
-                    resp = send_admin_request('uninstall', token, {})
-                    if resp.get('success'):
-                        messagebox.showinfo("Success", "Uninstallation started.")
-                        self.on_close()
+                resp = send_admin_request('uninstall', None, {})
+                if resp.get('success'):
+                    messagebox.showinfo("Success", "Uninstallation started.")
+                    self.on_close()
                 else:
-                    messagebox.showerror("Error", "Auth failed.")
+                    messagebox.showerror("Error", f"Uninstall failed: {resp.get('error')}")
 
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=20)

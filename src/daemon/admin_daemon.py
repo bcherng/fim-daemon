@@ -289,31 +289,6 @@ class FIMAdminDaemon:
             print(f"CRITICAL: Failed to setup logging: {e}")
             self.logger = logging.getLogger(__name__)
 
-    def verify_action_token(self, token, action):
-        """Verify the short-lived action token with the FIM Server"""
-        try:
-            self.logger.info(f"Verifying token for action: {action}")
-            response = requests.post(
-                f"{self.config.server_url}/api/auth/verify-action-token",
-                json={
-                    "token": token,
-                    "client_id": self.config.host_id,
-                    "action": action
-                },
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                return True, response.json()
-            else:
-                error = response.json().get('error', 'Token verification failed')
-                self.logger.warning(f"Token verification rejected: {error}")
-                return False, error
-                
-        except Exception as e:
-            self.logger.error(f"Error communicating with server for token verification: {e}")
-            return False, str(e)
-
     def broadcast_status(self):
         """Broadcast current connection and pending stats to all subscribers."""
         if self.state and self.conn_mgr:
@@ -503,32 +478,17 @@ class FIMAdminDaemon:
                 self.logger.error(f"Unknown connection type: {type(conn)}")
                 return
                 
-            action = request.get('action')
-            token = request.get('token')
-            payload = request.get('payload', {})
-
-            # Subscribe is a special long-lived action — no token required
-            if action == 'subscribe':
-                self._handle_subscribe(conn)
-                return
-
-            if not action or not token:
-                response = {"success": False, "error": "Missing action or token"}
+            if not action:
+                response = {"success": False, "error": "Missing action"}
             else:
-                is_valid, validation_data = self.verify_action_token(token, action)
-                if not is_valid:
-                    response = {"success": False, "error": f"Token rejected: {validation_data}"}
+                if action == 'change_directory':
+                    response = self.handle_change_directory(payload)
+                elif action == 'uninstall':
+                    response = self.handle_uninstall(payload)
+                elif action == 'reregister':
+                    response = self.handle_reregister(payload)
                 else:
-                    if action == 'change_directory':
-                        response = self.handle_change_directory(payload)
-                    elif action == 'uninstall':
-                        response = self.handle_uninstall(payload)
-                    elif action == 'reregister':
-                        # Token is not strictly required for reregister as it uses admin creds directly
-                        # but we check it if provided for consistency
-                        response = self.handle_reregister(payload)
-                    else:
-                        response = {"success": False, "error": f"Unknown action: {action}"}
+                    response = {"success": False, "error": f"Unknown action: {action}"}
                         
             # Provide response back
             if sys.platform == 'win32' and isinstance(conn, int):
