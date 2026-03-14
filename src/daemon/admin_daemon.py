@@ -174,9 +174,9 @@ class FIMAdminDaemon:
                     while self.running and not self._monitor_stop.is_set():
                         import time
                         time.sleep(5)
-                        wd = state.get_watch_directory()
+                        wd = self.state.get_watch_directory()
                         if wd:
-                            self._launch_monitor_thread(state, conn_mgr, wd)
+                            self._launch_monitor_thread(self.state, self.conn_mgr, wd)
                             return
                 threading.Thread(target=_wait_for_dir, daemon=True).start()
                 return
