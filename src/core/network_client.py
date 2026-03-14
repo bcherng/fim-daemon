@@ -37,7 +37,9 @@ class NetworkClient:
                 return {
                     'success': True,
                     'event_id': data['event_id'],
-                    'validation': data['validation']
+                    'validation': data['validation'],
+                    'accepted': data.get('accepted', True),
+                    'recorded': data.get('recorded', True)
                 }
             elif response.status_code == 400:
                 data = response.json()

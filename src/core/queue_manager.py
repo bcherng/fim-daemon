@@ -40,26 +40,30 @@ class EventQueueManager:
                 result = self.network_client.send_event_to_server(event)
                 
                 if result['success']:
-                    ack_result = self.network_client.send_acknowledgement(
-                        result['event_id'], 
-                        result['validation']
-                    )
-                    
-                    if ack_result:
-                        self.state.update_last_valid_hash(
-                            event['root_hash'],
+                    # Update local state if the server actually accepted the integrity
+                    if result.get('accepted', True):
+                        ack_result = self.network_client.send_acknowledgement(
+                            result['event_id'], 
                             result['validation']
                         )
-                        self.state.dequeue_event()
-                        self.log_to_gui(
-                            f"✓ Synced: {event['event_type']} - {event.get('file_path', 'N/A')}",
-                            "success"
-                        )
-                        self.log_callback({'type': 'pending', 'count': self.state.get_queue_size()})
+                        if ack_result:
+                            self.state.update_last_valid_hash(
+                                event['root_hash'],
+                                result['validation']
+                            )
+                        else:
+                            self.log_to_gui("⚠ Acknowledgement failed, will retry", "warning")
+                            self.connection_mgr.mark_disconnected()
+                            break
                     else:
-                        self.log_to_gui("⚠ Acknowledgement failed, will retry", "warning")
-                        self.connection_mgr.mark_disconnected()
-                        break
+                        self.log_to_gui(f"⚠ Integrity Conflict recorded by server: {event.get('file_path', 'N/A')}", "warning")
+
+                    # If it was recorded (even if integrity was rejected), we pop and continue
+                    if result.get('recorded', True):
+                        self.state.dequeue_event()
+                        self.log_callback({'type': 'pending', 'count': self.state.get_queue_size()})
+                        # Continue the loop to process the next event
+                        continue
                 else:
                     if self.network_client.deregistered:
                         self.deregistered = True
