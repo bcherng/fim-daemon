@@ -18,6 +18,8 @@ class RegistrationClient:
         self.current_backoff = 1
         self.connected = False
         self.last_attempt = 0
+        import logging
+        self.logger = logging.getLogger(__name__)
     
     def _log(self, msg, status="info"):
         if self.log_callback:
@@ -117,13 +119,24 @@ class RegistrationClient:
             )
             
             if response.status_code == 200:
-                print("Registration successful with public key.")
                 data = response.json()
                 if 'server_public_key' in data:
                     self.state.set_server_public_key(data['server_public_key'])
                 return True
+            else:
+                try:
+                    resp_json = response.json()
+                    error_details = resp_json.get('details', 'No details provided')
+                    msg = f"Registration rejected by server (400): {error_details}"
+                    self._log(msg, "error")
+                    self.logger.error(msg)
+                except:
+                    msg = f"Registration rejected by server ({response.status_code})"
+                    self._log(msg, "error")
+                    self.logger.error(msg)
         except Exception as e:
             self._log(f"Registration failed: {str(e)}", "error")
+            self.logger.error(f"Registration failed: {str(e)}")
         
         return False
     

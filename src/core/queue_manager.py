@@ -37,6 +37,12 @@ class EventQueueManager:
                 if not event:
                     break
                 
+                # Verify local signature before sending (Offline Tamper Protection)
+                if not self._verify_local_signature(event):
+                    self.log_to_gui(f"⚠ SECURITY ALERT: Local signature verification failed for event {event.get('id')}. Skipping corrupted event.", "error")
+                    self.state.dequeue_event()
+                    continue
+
                 result = self.network_client.send_event_to_server(event)
                 
                 if result['success']:
@@ -85,3 +91,32 @@ class EventQueueManager:
             # re-trigger processing to ensure it doesn't stay stuck.
             if self.state.get_queue_size() > 0 and self.connection_mgr.connected and not self.deregistered:
                 threading.Thread(target=self.process_queue, daemon=True).start()
+
+    def _verify_local_signature(self, event):
+        """Verify the RSA signature of an event using the device's public key"""
+        try:
+            if not hasattr(self.state, 'device_signer') or not self.state.device_signer:
+                return True # Can't verify if no signer
+                
+            signature = event.get('signature')
+            if not signature:
+                return False
+                
+            payload_str = f"{event.get('id')}{event.get('prev_event_hash') or ''}{event.get('last_valid_hash') or ''}{event.get('new_hash') or ''}"
+            
+            from cryptography.hazmat.primitives.asymmetric import padding
+            from cryptography.hazmat.primitives import hashes
+            
+            sig_bytes = bytes.fromhex(signature)
+            self.state.device_signer.public_key.verify(
+                sig_bytes,
+                payload_str.encode('utf-8'),
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=32
+                ),
+                hashes.SHA256()
+            )
+            return True
+        except Exception:
+            return False
