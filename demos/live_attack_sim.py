@@ -135,6 +135,7 @@ def kill_fim():
         ps_kill = (
             "Get-Process | Where-Object { "
             "$_.Name -match 'python' -or $_.Name -match 'pythonservice' -or "
+            "$_.Name -match 'FIMClient' -or $_.Name -match 'FIMAdmin' -or "
             "$_.CommandLine -match 'admin_daemon.py' -or "
             "$_.CommandLine -match 'fim_client.py' "
             "} | Stop-Process -Force -ErrorAction SilentlyContinue"
@@ -144,6 +145,8 @@ def kill_fim():
         # Cleanup residual mutex/pipes by killing anything remotely related
         subprocess.run(["taskkill", "/F", "/T", "/IM", "python.exe"], capture_output=True)
         subprocess.run(["taskkill", "/F", "/T", "/IM", "pythonservice.exe"], capture_output=True)
+        subprocess.run(["taskkill", "/F", "/T", "/IM", "FIMClient.exe"], capture_output=True)
+        subprocess.run(["taskkill", "/F", "/T", "/IM", "FIMAdmin.exe"], capture_output=True)
         
         time.sleep(2)
         
