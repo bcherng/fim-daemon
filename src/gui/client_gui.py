@@ -562,8 +562,11 @@ class FIMClientGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to uninstall: {e}")    
     def on_close(self):
-        """Handle window close - minimize to tray"""
-        self.root.withdraw()
+        """Handle window close — stop monitoring and exit the process cleanly."""
+        import sys
+        self.stop_monitoring()
+        self.root.destroy()
+        sys.exit(0)
     
     def run(self):
         """Run the GUI main loop"""
