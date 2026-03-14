@@ -35,12 +35,12 @@ def fim_processes_running():
     """Return True if any FIM client or daemon python process is running."""
     try:
         if sys.platform == 'win32':
-            import wmi
-            c = wmi.WMI()
-            for p in c.Win32_Process(name="python.exe"):
-                if p.CommandLine and any(s in p.CommandLine for s in FIM_SCRIPTS):
-                    return True
-            return False
+            result = subprocess.run(
+                ['wmic', 'process', 'where', "name='python.exe'", 'get', 'CommandLine'],
+                capture_output=True, text=True, timeout=5
+            )
+            output = result.stdout
+            return any(s in output for s in FIM_SCRIPTS)
         else:
             result = subprocess.run(['pgrep', '-f', '|'.join(FIM_SCRIPTS)], capture_output=True)
             return result.returncode == 0
@@ -79,14 +79,21 @@ def wait_for_fim_dead(timeout=30):
 def kill_fim():
     """Terminate all running FIM client and admin daemon processes."""
     if sys.platform == 'win32':
+        # Use wmic to find and kill by command line
         try:
-            import wmi
-            c = wmi.WMI()
-            for process in c.Win32_Process(name="python.exe"):
-                if process.CommandLine and any(s in process.CommandLine for s in FIM_SCRIPTS):
-                    process.Terminate()
+            result = subprocess.run(
+                ['wmic', 'process', 'where', "name='python.exe'", 'get', 'ProcessId,CommandLine'],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.splitlines():
+                if any(s in line for s in FIM_SCRIPTS):
+                    # Extract PID (last token on the line)
+                    parts = line.strip().rsplit(None, 1)
+                    if len(parts) == 2 and parts[1].isdigit():
+                        subprocess.run(['taskkill', '/F', '/PID', parts[1]], capture_output=True)
         except Exception:
             pass
+        # Backup kill by window title
         subprocess.run(["taskkill", "/F", "/IM", "python.exe", "/FI", "WINDOWTITLE eq FIM Client*"], capture_output=True)
         subprocess.run(["taskkill", "/F", "/IM", "python.exe", "/FI", "WINDOWTITLE eq FIM Admin*"], capture_output=True)
     else:
