@@ -106,7 +106,8 @@ def run_daemon_background(config, state, conn_mgr, log_callback, watch_dir, stop
 
             now = time.time()
             
-            # ... [skip deregistration and reconnection checks] ...
+            # Check for deregistration or reconnection needs
+            # (Checks handled by subsequent blocks)
             
             # Queue Pulse: if events are stuck, re-trigger processing periodically
             if conn_mgr.connected and now - last_pulse >= pulse_interval:

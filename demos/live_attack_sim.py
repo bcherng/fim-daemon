@@ -159,6 +159,38 @@ def kill_fim():
         subprocess.run(["pkill", "-f", "fim_client.py"], capture_output=True)
         subprocess.run(["pkill", "-f", "admin_daemon.py"], capture_output=True)
 
+def nuclear_stop_service():
+    """Aggressively stop FIMAdmin service and kill any process claiming to be it."""
+    if sys.platform != 'win32': return
+    
+    print("   -> Nuclear stop: FIMAdmin")
+    # 1. Standard stop
+    subprocess.run(['sc', 'stop', 'FIMAdmin'], capture_output=True)
+    time.sleep(1)
+    
+    # 2. Find process by service name and kill it directly
+    ps_cmd = (
+        "$s = Get-CimInstance Win32_Service -Filter \"Name='FIMAdmin'\"; "
+        "if ($s.ProcessId -gt 0) { Stop-Process -Id $s.ProcessId -Force -ErrorAction SilentlyContinue }"
+    )
+    subprocess.run(['powershell', '-NonInteractive', '-Command', ps_cmd], capture_output=True)
+    
+    # 3. Kill anything with the binary names or script paths
+    ps_kill = (
+        "Get-Process | Where-Object { "
+        "$_.Name -match 'FIMAdmin' -or $_.Name -match 'FIMClient' -or "
+        "$_.Name -match 'pythonservice' -or "
+        "$_.CommandLine -match 'admin_daemon.py' -or "
+        "$_.CommandLine -match 'fim_client.py' "
+        "} | Stop-Process -Force -ErrorAction SilentlyContinue"
+    )
+    subprocess.run(['powershell', '-NonInteractive', '-Command', ps_kill], capture_output=True)
+    
+    # 4. Final sc delete/stop cleanup
+    subprocess.run(['sc', 'stop', 'FIMAdmin'], capture_output=True)
+    time.sleep(1)
+
+
 
 def launch_fim():
     """Start FIMAdmin service (if installed) and GUI client in new console windows."""
@@ -170,9 +202,16 @@ def launch_fim():
             if is_admin():
                 print("   -> Starting FIMAdmin service...")
                 res = subprocess.run(['sc', 'start', 'FIMAdmin'], capture_output=True, text=True)
-                # Ignore "service already running" error (error code 1056)
-                if res.returncode != 0 and "1056" not in res.stderr:
-                    print(f"      ⚠ Service start command returned code {res.returncode}: {res.stderr.strip()}")
+                if res.returncode != 0:
+                    if "1056" in res.stderr or "1056" in res.stdout:
+                        print("      ⚠ Service already running (1056). Forcing nuclear restart...")
+                        nuclear_stop_service()
+                        time.sleep(2)
+                        subprocess.run(['sc', 'start', 'FIMAdmin'], capture_output=True)
+                    else:
+                        print(f"      ⚠ Service start command returned code {res.returncode}: {res.stderr.strip()}")
+                        print("      [!] CRITICAL: FIMAdmin service failed to start. Cannot proceed.")
+                        sys.exit(1)
             else:
                 print("   -> (Requesting GUI to start service via internal escalation...)")
             time.sleep(1)
@@ -204,7 +243,7 @@ def main():
         print(f"Error: Directory '{watch_dir}' does not exist.")
         sys.exit(1)
 
-    state_file = (os.path.expandvars(r'%APPDATA%\FIMClient\state.json')
+    state_file = (os.path.join(os.environ.get('PROGRAMDATA', 'C:\\ProgramData'), r'FIMClient\state.json')
                   if sys.platform == 'win32'
                   else os.path.expanduser("~/.fim-client/state.json"))
     sys_config_path = r'C:\ProgramData\FIMClient\system_config.json'

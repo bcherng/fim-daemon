@@ -107,7 +107,9 @@ class FIMState:
         """Encrypt data using Windows DPAPI or Linux Fernet"""
         if sys.platform == 'win32' and win32crypt:
             try:
-                return win32crypt.CryptProtectData(data, "FIM State", None, None, None, 0)
+                # Use CRYPTPROTECT_LOCAL_MACHINE (4) so the state can be accessed 
+                # by both the LocalSystem service and Admin-level tools.
+                return win32crypt.CryptProtectData(data, "FIM State", None, None, None, 4)
             except Exception as e:
                 print(f"DPAPI Encryption failed: {e}")
         elif sys.platform != 'win32' and Fernet:
@@ -123,6 +125,7 @@ class FIMState:
         if sys.platform == 'win32' and win32crypt:
             try:
                 # CryptUnprotectData(data, entropy, reserved, prompt_struct, flags)
+                # Matches the flag used in _encrypt
                 _, decrypted_data = win32crypt.CryptUnprotectData(data, None, None, None, 0)
                 return decrypted_data
             except Exception as e:

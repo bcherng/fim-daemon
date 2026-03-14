@@ -153,7 +153,8 @@ class FIMAdminDaemon:
         try:
             # Build the same objects fim_client.py used to build
             if sys.platform == 'win32':
-                state_dir = os.path.expandvars(r'%APPDATA%\FIMClient')
+                base_dir = os.environ.get('PROGRAMDATA', 'C:\\ProgramData')
+                state_dir = os.path.join(base_dir, 'FIMClient')
             else:
                 state_dir = os.path.expanduser('~/.fim-client')
             os.makedirs(state_dir, exist_ok=True)
@@ -550,8 +551,31 @@ class FIMAdminDaemon:
                 pass
 
     def stop(self):
+        self.logger.info("Stopping Admin Daemon...")
         self.running = False
         self._monitor_stop.set()
+        
+        # Unblock the listener.accept() call by connecting to the pipe/socket
+        try:
+            if sys.platform == 'win32':
+                import win32file
+                # A simple connection to the pipe is enough to wake up ConnectNamedPipe
+                handle = win32file.CreateFile(
+                    r'\\.\pipe\fim_admin_ipc',
+                    win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                    0, None,
+                    win32file.OPEN_EXISTING,
+                    0, None
+                )
+                win32file.CloseHandle(handle)
+            else:
+                address = '/var/run/fim_admin.sock'
+                if os.path.exists(address):
+                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    sock.connect(address)
+                    sock.close()
+        except Exception as e:
+            self.logger.debug(f"Self-connection to unblock listener failed (intended): {e}")
 
     def run(self):
         self.logger.info(f'Starting FIM Admin Daemon on {self.config.platform_type}')
@@ -567,6 +591,15 @@ class FIMAdminDaemon:
                 while self.running:
                     try:
                         conn = listener.accept()
+                        if not self.running:
+                             # We were woken up just to exit
+                             if isinstance(conn, int):
+                                 import win32pipe, win32file
+                                 try:
+                                     win32pipe.DisconnectNamedPipe(conn)
+                                     win32file.CloseHandle(conn)
+                                 except: pass
+                             break
                         client_thread = threading.Thread(target=self.handle_client, args=(conn,))
                         client_thread.daemon = True
                         client_thread.start()
