@@ -68,9 +68,9 @@ def main():
         
     # Ensure admin daemon is running (relies on its own lock to avoid duplicates)
     import subprocess
-    daemon_path = os.path.join(os.path.dirname(__file__), 'src', 'daemon', 'admin_daemon.py')
+    daemon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src', 'daemon', 'admin_daemon.py')
     if sys.platform == 'win32':
-        subprocess.Popen([sys.executable, daemon_path, "run"], creationflags=0x08000000) # CREATE_NO_WINDOW
+        subprocess.Popen([sys.executable, daemon_path, "run"], creationflags=subprocess.CREATE_NEW_CONSOLE)
     else:
         subprocess.Popen([sys.executable, daemon_path, "run"])
         

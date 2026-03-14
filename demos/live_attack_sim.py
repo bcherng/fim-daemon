@@ -35,12 +35,19 @@ def fim_processes_running():
     """Return True if any FIM client or daemon python process is running."""
     try:
         if sys.platform == 'win32':
-            result = subprocess.run(
-                ['wmic', 'process', 'where', "name='python.exe'", 'get', 'CommandLine'],
-                capture_output=True, text=True, timeout=5
+            ps_cmd = (
+                "Get-WmiObject Win32_Process "
+                "| Where-Object { $_.Name -eq 'python.exe' -and ("
+                "$_.CommandLine -like '*fim_client.py*' "
+                "-or $_.CommandLine -like '*admin_daemon.py*') } "
+                "| Measure-Object | Select-Object -ExpandProperty Count"
             )
-            output = result.stdout
-            return any(s in output for s in FIM_SCRIPTS)
+            result = subprocess.run(
+                ['powershell', '-NonInteractive', '-Command', ps_cmd],
+                capture_output=True, text=True, timeout=10
+            )
+            count_str = result.stdout.strip()
+            return count_str.isdigit() and int(count_str) > 0
         else:
             result = subprocess.run(['pgrep', '-f', '|'.join(FIM_SCRIPTS)], capture_output=True)
             return result.returncode == 0
