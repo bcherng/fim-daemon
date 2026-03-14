@@ -65,13 +65,24 @@ def main():
             import win32serviceutil
             import win32service
             status = win32serviceutil.QueryServiceStatus('FIMAdmin')
-            if status[1] != win32service.SERVICE_RUNNING:
-                win32serviceutil.StartService('FIMAdmin')
-            _service_started = True
+            if status[1] == win32service.SERVICE_RUNNING:
+                _service_started = True
+            else:
+                try:
+                    win32serviceutil.StartService('FIMAdmin')
+                    # Give it a second to start
+                    import time
+                    time.sleep(1)
+                    status = win32serviceutil.QueryServiceStatus('FIMAdmin')
+                    if status[1] == win32service.SERVICE_RUNNING:
+                        _service_started = True
+                except:
+                    _service_started = False
         except Exception:
             _service_started = False
 
     if not _service_started:
+        print("Service 'FIMAdmin' not running or not found. Starting standalone Admin Daemon...")
         if sys.platform == 'win32':
             subprocess.Popen([sys.executable, daemon_path, "run"], creationflags=subprocess.CREATE_NEW_CONSOLE)
         else:
