@@ -108,6 +108,8 @@ class FIMAdminDaemon:
         self.running = True
 
         # --- Monitoring ownership ---
+        self.state = None               # FIMState instance (loaded in _start_monitoring)
+        self.conn_mgr = None            # RegistrationClient instance
         self._subscribers = []          # list of (pipe_handle, lock) for live GUI connections
         self._subscribers_lock = threading.Lock()
         self._log_ring = []             # ring buffer of last RING_BUFFER_SIZE log msgs
@@ -160,10 +162,10 @@ class FIMAdminDaemon:
             from core.state import FIMState
             from core.registration_client import RegistrationClient
 
-            state = FIMState(state_file)
-            conn_mgr = RegistrationClient(self.config, state)
+            self.state = FIMState(state_file)
+            self.conn_mgr = RegistrationClient(self.config, self.state)
 
-            watch_dir = state.get_watch_directory()
+            watch_dir = self.state.get_watch_directory()
             if not watch_dir:
                 self.logger.warning('No watch directory configured; monitoring deferred until GUI sets one.')
                 # Re-check periodically until a directory is set
@@ -178,7 +180,7 @@ class FIMAdminDaemon:
                 threading.Thread(target=_wait_for_dir, daemon=True).start()
                 return
 
-            self._launch_monitor_thread(state, conn_mgr, watch_dir)
+            self._launch_monitor_thread(self.state, self.conn_mgr, watch_dir)
         except Exception as e:
             self.logger.error(f'Failed to start monitoring: {e}')
 
@@ -201,6 +203,18 @@ class FIMAdminDaemon:
         # Replay history
         with self._ring_lock:
             history = list(self._log_ring)
+        
+        # Send initial sync message to give GUI context immediately
+        if self.state:
+            sync_msg = {
+                'type': 'sync',
+                'directory': self.state.get_watch_directory(),
+                'connected': self.conn_mgr.connected if self.conn_mgr else False,
+                'pending': self.state.get_queue_size(),
+                'deregistered': self.state.is_deregistered()
+            }
+            history.insert(0, sync_msg)
+
         for msg in history:
             try:
                 encoded = (json.dumps(msg) + '\n').encode('utf-8')
@@ -290,6 +304,53 @@ class FIMAdminDaemon:
             self.logger.error(f"Error communicating with server for token verification: {e}")
             return False, str(e)
 
+    def broadcast_status(self):
+        """Broadcast current connection and pending stats to all subscribers."""
+        if self.state and self.conn_mgr:
+            msg = {
+                'type': 'sync', # reused by GUI to update multiple labels
+                'directory': self.state.get_watch_directory(),
+                'connected': self.conn_mgr.connected,
+                'pending': self.state.get_queue_size(),
+                'deregistered': self.state.is_deregistered()
+            }
+            self._broadcast(msg)
+
+    def handle_reregister(self, payload):
+        """Handle manual reregistration request from GUI"""
+        username = payload.get('username')
+        password = payload.get('password')
+        if not username or not password:
+            return {"success": False, "error": "Missing credentials"}
+            
+        try:
+            import requests
+            response = requests.post(
+                f"{self.config.server_url}/api/clients/reregister",
+                json={
+                    'client_id': self.config.host_id,
+                    'username': username,
+                    'password': password
+                },
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                if self.state:
+                    self.state.set_deregistered(False)
+                self.logger.info("Reregistration successful")
+                self.broadcast_status()
+                # If monitoring wasn't running, start it
+                if not self._monitor_thread or not self._monitor_thread.is_alive():
+                    self._start_monitoring()
+                return {"success": True, "message": "Reregistered successfully"}
+            else:
+                error = response.json().get('error', 'Server rejected request')
+                return {"success": False, "error": error}
+        except Exception as e:
+            self.logger.error(f"Reregistration failed: {e}")
+            return {"success": False, "error": str(e)}
+
     def handle_change_directory(self, payload):
         """Handle the change directory critical action"""
         new_path = payload.get('path')
@@ -320,6 +381,15 @@ class FIMAdminDaemon:
             with open(self.sys_config_path, 'w') as f:
                 json.dump(sys_config, f, indent=2)
             self.logger.info(f"Successfully updated system watch directory to: {new_path}")
+            
+            # Restart monitoring thread to pick up the new directory and trigger scan
+            if self.running:
+                self.logger.info("Restarting monitoring for new directory...")
+                self._monitor_stop.set()
+                if self._monitor_thread:
+                    self._monitor_thread.join(timeout=2)
+                self._start_monitoring()
+
             return {"success": True, "message": f"Directory changed to {new_path}"}
         except Exception as e:
             self.logger.error(f"Failed to write system config: {e}")
@@ -443,6 +513,10 @@ class FIMAdminDaemon:
                         response = self.handle_change_directory(payload)
                     elif action == 'uninstall':
                         response = self.handle_uninstall(payload)
+                    elif action == 'reregister':
+                        # Token is not strictly required for reregister as it uses admin creds directly
+                        # but we check it if provided for consistency
+                        response = self.handle_reregister(payload)
                     else:
                         response = {"success": False, "error": f"Unknown action: {action}"}
                         

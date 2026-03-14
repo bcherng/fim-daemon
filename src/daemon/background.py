@@ -83,6 +83,7 @@ def run_daemon_background(config, state, conn_mgr, log_callback, watch_dir, stop
     observer.start()
 
     _log(log_callback, f'Watching {len(files)} files in {watch_dir}', 'success')
+    log_callback({'type': 'directory', 'directory': watch_dir})
 
     # Drain any events queued from a previous session
     pending_count = state.get_queue_size()

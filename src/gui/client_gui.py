@@ -1,545 +1,292 @@
 #!/usr/bin/env python3
 """
-FIM Client GUI
+FIM Client GUI — Pure View Layer
+Provides a live dashboard of monitoring activity managed by the FIMAdmin service.
+No direct access to state.json or monitoring threads; all data comes via IPC.
 """
 import os
 import queue
 import threading
-import uuid
+import time
 from datetime import datetime
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox
-from core.tree_builder import build_initial_tree
 
 
 class FIMClientGUI:
-    """GUI for FIM Client with directory selection"""
-    
+    """GUI for FIM Client — Purely a subscriber to the FIMAdmin service."""
+
     def __init__(self, config, admin_verifier):
         self.config = config
         self.admin_verifier = admin_verifier
         self.queue = queue.Queue()
         self._subscribe_stop = threading.Event()
-        
+
         self.root = tk.Tk()
         self.root.title(f"FIM Client - {config.host_id[:16]}")
         self.root.geometry("800x600")
-        
+
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        
+
         # Connect to admin daemon log stream immediately
         self.root.after(100, self.start_log_subscriber)
-    
+
     def setup_ui(self):
         """Setup GUI components"""
         # Header
         header_frame = ttk.Frame(self.root)
         header_frame.pack(fill=tk.X, padx=10, pady=5)
-        
+
         ttk.Label(
-            header_frame, 
-            text="FIM Client", 
+            header_frame,
+            text="FIM Client",
             font=("Arial", 14, "bold")
         ).pack(side=tk.LEFT)
-        
+
         self.status_label = ttk.Label(
-            header_frame, 
-            text="● Disconnected", 
-            foreground="red"
+            header_frame,
+            text="● Connecting...",
+            foreground="gray"
         )
         self.status_label.pack(side=tk.RIGHT, padx=5)
-        
+
         # Directory info
         dir_frame = ttk.Frame(self.root)
         dir_frame.pack(fill=tk.X, padx=10, pady=5)
-        
+
         ttk.Label(dir_frame, text="Monitoring:").pack(side=tk.LEFT)
-        self.dir_label = ttk.Label(dir_frame, text="Not set", font=("Courier", 9))
+        self.dir_label = ttk.Label(dir_frame, text="Pending service sync...", font=("Courier", 9))
         self.dir_label.pack(side=tk.LEFT, padx=5)
-        
+
         self.change_dir_btn = ttk.Button(
-            dir_frame, 
-            text="Change Directory", 
+            dir_frame,
+            text="Change Directory",
             command=self.change_directory
         )
         self.change_dir_btn.pack(side=tk.RIGHT)
-        
+
         # Stats bar
         stats_frame = ttk.Frame(self.root)
         stats_frame.pack(fill=tk.X, padx=10, pady=5)
-        
+
         ttk.Label(stats_frame, text="Machine ID:").pack(side=tk.LEFT)
         ttk.Label(
-            stats_frame, 
-            text=self.config.host_id[:16], 
+            stats_frame,
+            text=self.config.host_id[:16],
             font=("Courier", 9)
         ).pack(side=tk.LEFT, padx=5)
-        
+
         self.pending_label = ttk.Label(stats_frame, text="", foreground="orange")
         self.pending_label.pack(side=tk.RIGHT)
-        
+
         # Log area
         log_frame = ttk.LabelFrame(self.root, text="Activity Log")
         log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
+
         self.log_text = scrolledtext.ScrolledText(
-            log_frame, 
-            height=20, 
+            log_frame,
+            height=20,
             state='disabled',
-            bg='#1e1e1e', 
+            bg='#1e1e1e',
             fg='#d4d4d4',
             insertbackground='white'
         )
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
+
         # Configure tags
         self.log_text.tag_config("success", foreground="#4ec9b0")
         self.log_text.tag_config("warning", foreground="#ce9178")
         self.log_text.tag_config("error", foreground="#f48771")
         self.log_text.tag_config("info", foreground="#9cdcfe")
-        
-        # Update directory label
-        watch_dir = self.state.get_watch_directory()
-        if watch_dir:
-            self.dir_label.config(text=watch_dir)
-    
-    def prompt_directory_selection(self):
-        """Show directory selection dialog on first run"""
-        if self.state.is_deregistered():
-            return
-            
-        result = messagebox.askyesno(
-            "Select Monitoring Directory",
-            "This machine has no monitoring directory set.\n\n"
-            "Would you like to configure one now? (Requires Admin credentials)"
-        )
-        
-        if result:
-            self.change_directory()
-        else:
-            messagebox.showinfo("Info", "You can set the monitoring directory later from the GUI.")
-    
-    def set_monitoring_directory(self, directory):
-        """Set the monitoring directory and start monitoring"""
-        self.state.set_watch_directory(directory)
-        self.dir_label.config(text=directory)
-        self.add_log(
-            datetime.now().isoformat(), 
-            f"Monitoring directory set: {directory}", 
-            "success"
-        )
-        
-        # Log directory change event
-        self.add_log(datetime.now().isoformat(), "═══ DIRECTORY CHANGE ═══", "info")
-        
-        # Restart monitoring if already running
-        if self.state.is_deregistered():
-            self.add_log(datetime.now().isoformat(), "Machine is deregistered. Monitoring will not start.", "error")
-            return
 
-        if self.daemon_thread and self.daemon_thread.is_alive():
-            self.add_log(datetime.now().isoformat(), "Restarting monitoring...", "warning")
-            self.stop_monitoring()
-            self.root.after(1000, self.start_monitoring) 
-        else:
-            self.start_monitoring()
-
-    def stop_monitoring(self):
-        """Signal daemon to stop without blocking the UI thread"""
-        if self.daemon_thread and self.daemon_thread.is_alive():
-             if hasattr(self, 'stop_event'):
-                 self.stop_event.set()
-                 # We do NOT join() here as it hangs the GUI thread during directory changes.
-                 # The thread will exit naturally when it next checks stop_event.
-                 self.daemon_thread = None
-    
     def change_directory(self):
-        """Change monitoring directory with admin verification"""
-        if self.state.is_deregistered():
-            messagebox.showwarning("Warning", "Machine is deregistered. Please reregister before changing the directory.")
-            return
-            
+        """Change monitoring directory with admin verification via IPC."""
         # Create admin login dialog
         dialog = tk.Toplevel(self.root)
         dialog.title("Admin Verification Required")
         dialog.geometry("350x180")
         dialog.transient(self.root)
         dialog.grab_set()
-        
+
         ttk.Label(
-            dialog, 
+            dialog,
             text="Enter admin credentials to change directory:",
             font=("Arial", 10)
         ).pack(pady=10)
-        
+
         ttk.Label(dialog, text="Username:").pack(anchor=tk.W, padx=20)
         username_entry = ttk.Entry(dialog, width=30)
         username_entry.pack(padx=20, pady=5)
-        
+
         ttk.Label(dialog, text="Password:").pack(anchor=tk.W, padx=20)
         password_entry = ttk.Entry(dialog, show="*", width=30)
         password_entry.pack(padx=20, pady=5)
-        
+
         def verify_and_change():
             username = username_entry.get()
             password = password_entry.get()
-            
-            # Fetch token (also acts as offline-check/timeout)
+
+            # 1. Verification token (GUI process)
             token = self.admin_verifier.get_action_token(username, password, 'change_directory')
             if token:
                 dialog.destroy()
-                directory = filedialog.askdirectory(
-                    title="Select New Directory to Monitor"
-                )
+                directory = filedialog.askdirectory(title="Select New Directory to Monitor")
                 if directory:
-                    old_dir = self.state.get_watch_directory()
+                    # 2. Path correction for Windows consistency
+                    directory = os.path.abspath(directory).replace('\\', '/')
                     
-                    if directory == old_dir:
-                        self.add_log(datetime.now().isoformat(), "Selected directory is already being monitored.", "info")
-                        return
-
-                    old_hash = self.state.get_last_valid_hash()
+                    self.add_log(datetime.now().isoformat(), f"Requesting change to: {directory}", "warning")
                     
-                    # IPC call to elevated admin daemon to change system config
+                    # 3. IPC call to service (privileged process)
                     from core.admin_ipc_client import send_admin_request
                     response = send_admin_request('change_directory', token, {'path': directory})
                     
                     if not response.get('success'):
-                        messagebox.showerror("Error", f"Admin daemon failed: {response.get('error')}")
-                        return
-                    
-                    self.add_log(datetime.now().isoformat(), "═══ DIRECTORY CHANGED ═══", "warning")
-                    self.add_log(datetime.now().isoformat(), f"Old: {old_dir}", "info")
-                    self.add_log(datetime.now().isoformat(), f"New: {directory}", "info")
-                    self.add_log(datetime.now().isoformat(), f"Changed by: {username}", "info")
-                    self.add_log(datetime.now().isoformat(), "═══════════════════════════", "warning")
-                    
-                    # Background the heavy lifting to keep UI responsive
-                    def run_async_change():
-                        try:
-                            self.queue.put({'type': 'log', 'timestamp': datetime.now().isoformat(), 'message': "Processing directory change in background...", 'status': 'info'})
-                            
-                            # Queue directory_unselected event for OLD directory
-                            if old_dir:
-                                self.state.enqueue_event({
-                                    'client_id': self.config.host_id,
-                                    'event_type': 'directory_unselected',
-                                    'file_path': old_dir,
-                                    'old_hash': old_hash, # Current valid hash
-                                    'new_hash': old_hash, # No change to content
-                                    'root_hash': old_hash,
-                                    'last_valid_hash': old_hash,
-                                    'merkle_proof': None,
-                                    'timestamp': datetime.now().isoformat()
-                                })
-                            
-                            # Stop current monitoring
-                            self.stop_monitoring()
-                            
-                            # Calculate initial hash for NEW directory
-                            try:
-                                new_tree, files = build_initial_tree(directory)
-                                new_root_hash = new_tree[0][0].hex() if new_tree else None
-                                file_count = len(files) if files else 0
-                            except Exception as e:
-                                self.queue.put({'type': 'log', 'timestamp': datetime.now().isoformat(), 'message': f"Error building tree: {e}", 'status': 'error'})
-                                new_root_hash = None
-                                file_count = 0
-
-                            # Queue directory_selected event for NEW directory
-                            self.state.enqueue_event({
-                                'client_id': self.config.host_id,
-                                'event_type': 'directory_selected',
-                                'file_path': directory,
-                                'old_hash': new_root_hash,
-                                'new_hash': new_root_hash,
-                                'root_hash': new_root_hash,
-                                'last_valid_hash': old_hash,
-                                'merkle_proof': None,
-                                'tracked_file_count': file_count,
-                                'timestamp': datetime.now().isoformat()
-                            })
-                            
-                            # Wait for old daemon loop to exit completely to prevent race conditions
-                            if hasattr(self, 'daemon_thread') and self.daemon_thread and self.daemon_thread.is_alive():
-                                self.queue.put({'type': 'log', 'timestamp': datetime.now().isoformat(), 'message': "Waiting for previous monitor to exit...", 'status': 'info'})
-                                self.daemon_thread.join(timeout=10.0)
-                            
-                            # Trigger monitoring start from the main GUI thread via queue
-                            self.queue.put({'type': 'restart_monitoring', 'directory': directory})
-                        except Exception as e:
-                            import traceback
-                            self.queue.put({'type': 'log', 'timestamp': datetime.now().isoformat(), 'message': f"Fatal error in background thread: {e}", 'status': 'error'})
-                            print(f"Fatal error in run_async_change:\n{traceback.format_exc()}")
-
-                    threading.Thread(target=run_async_change, daemon=True).start()
+                        messagebox.showerror("Error", f"Service rejected change: {response.get('error')}")
+                    else:
+                        messagebox.showinfo("Success", f"Request accepted. The service will now scan {directory}")
             else:
-                messagebox.showerror("Authentication Failed", "Invalid credentials")
-        
-        ttk.Button(
-            dialog, 
-            text="Verify & Change", 
-            command=verify_and_change
-        ).pack(pady=10)
-    
+                messagebox.showerror("Authentication Failed", "Invalid credentials or server unreachable")
+
+        ttk.Button(dialog, text="Verify & Change", command=verify_and_change).pack(pady=10)
+
     def start_log_subscriber(self):
         """Subscribe to the admin daemon's log broadcast channel."""
         from core.admin_ipc_client import subscribe_to_logs
         self._subscribe_stop.clear()
         subscribe_to_logs(self.queue.put, stop_event=self._subscribe_stop)
-        self.add_log(datetime.now().isoformat(), 'Connected to FIM service log stream', 'success')
 
     def stop_log_subscriber(self):
         """Signal the subscriber thread to exit."""
         self._subscribe_stop.set()
-    
+
     def add_log(self, timestamp, message, status="info"):
         """Add log entry to text widget"""
         self.log_text.config(state='normal')
-        time_str = datetime.fromisoformat(timestamp).strftime("%H:%M:%S")
+        try:
+            time_str = datetime.fromisoformat(timestamp).strftime("%H:%M:%S")
+        except:
+            time_str = datetime.now().strftime("%H:%M:%S")
         self.log_text.insert(tk.END, f"[{time_str}] ", "info")
         self.log_text.insert(tk.END, f"{message}\n", status)
         self.log_text.see(tk.END)
         self.log_text.config(state='disabled')
-    
-    def update_status(self, connected):
+
+    def update_status(self, connected, deregistered=False):
         """Update connection status indicator"""
-        if connected:
+        if deregistered:
+            self.status_label.config(text="● Deregistered", foreground="orange")
+            self.change_dir_btn.config(state='disabled')
+        elif connected:
             self.status_label.config(text="● Connected", foreground="green")
+            self.change_dir_btn.config(state='normal')
         else:
             self.status_label.config(text="● Disconnected", foreground="red")
-    
+            self.change_dir_btn.config(state='normal')
+
     def update_pending_count(self, count):
         """Update pending events counter"""
         if count > 0:
             self.pending_label.config(text=f"{count} pending events")
         else:
             self.pending_label.config(text="")
-    
+
     def process_queue(self):
-        """Process messages from daemon thread"""
+        """Process messages from daemon log stream"""
         try:
-            # Process up to 30 messages at once to keep UI responsive
-            for _ in range(30):
+            for _ in range(50):
                 msg = self.queue.get_nowait()
-                if msg['type'] == 'log':
+                m_type = msg.get('type')
+                
+                if m_type == 'log':
                     self.add_log(msg['timestamp'], msg['message'], msg.get('status', 'info'))
-                elif msg['type'] == 'status':
+                elif m_type == 'status':
                     self.update_status(msg['connected'])
-                elif msg['type'] == 'pending':
+                elif m_type == 'pending':
                     self.update_pending_count(msg['count'])
-                elif msg['type'] == 'removal_detected':
+                elif m_type == 'directory':
+                    self.dir_label.config(text=msg['directory'])
+                elif m_type == 'sync':
+                    # Full state sync from service
+                    self.dir_label.config(text=msg.get('directory', 'Not set'))
+                    self.update_status(msg.get('connected', False), msg.get('deregistered', False))
+                    self.update_pending_count(msg.get('pending', 0))
+                    if msg.get('deregistered'):
+                        self.handle_deregistration()
+                elif m_type == 'deregistered':
                     self.handle_deregistration(msg.get('message'))
-                elif msg['type'] == 'deregistered':
-                    self.handle_deregistration(msg.get('message'))
-                elif msg['type'] == 'restart_monitoring':
-                    self.set_monitoring_directory(msg['directory'])
+                elif m_type == 'removal_detected':
+                    self.handle_deregistration("Machine removed from server.")
+
         except queue.Empty:
             pass
         
         self.root.after(100, self.process_queue)
-    
+
     def handle_deregistration(self, server_message=None):
-        """Handle machine deregistration - show reregister/uninstall options"""
-        if hasattr(self, 'deregistration_handled'):
-            return
+        """Show deregistration options."""
+        if hasattr(self, 'deregistration_handled'): return
         self.deregistration_handled = True
         
-        message = server_message or "This machine has been deregistered by an administrator."
-        
-        self.add_log(datetime.now().isoformat(), f"⚠ DEREGISTERED: {message}", "error")
         self.status_label.config(text="● Deregistered", foreground="orange")
-        
-        # Disable main UI actions
-        if hasattr(self, 'change_dir_btn'):
-            self.change_dir_btn.config(state='disabled')
-        
-        # Stop monitoring
-        self.state.set_deregistered(True)
-        self.stop_monitoring()
-        
-        # Show dialog with options
+        self.change_dir_btn.config(state='disabled')
+
         dialog = tk.Toplevel(self.root)
         dialog.title("Machine Deregistered")
-        dialog.geometry("450x350")
+        dialog.geometry("400x350")
         dialog.transient(self.root)
         dialog.grab_set()
-        
-        ttk.Label(
-            dialog,
-            text="⚠ Machine Deregistered",
-            font=("Arial", 12, "bold"),
-            foreground="orange"
-        ).pack(pady=10)
-        
-        ttk.Label(
-            dialog,
-            text=message,
-            wraplength=400,
-            justify=tk.LEFT
-        ).pack(pady=10, padx=20)
-        
-        ttk.Label(
-            dialog,
-            text="Choose an action (requires admin credentials):",
-            font=("Arial", 10, "bold")
-        ).pack(pady=10)
-        
-        # Admin credentials frame
+
+        ttk.Label(dialog, text="⚠ Machine Deregistered", font=("Arial", 12, "bold"), foreground="orange").pack(pady=10)
+        ttk.Label(dialog, text=server_message or "Deregistered by administrator.", wraplength=350).pack(pady=10, padx=20)
+
+        # Admin creds for reregister/uninstall
         cred_frame = ttk.Frame(dialog)
         cred_frame.pack(pady=10, padx=20, fill=tk.X)
-        
-        ttk.Label(cred_frame, text="Admin Username:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        username_entry = ttk.Entry(cred_frame, width=30)
-        username_entry.grid(row=0, column=1, pady=5, padx=5)
-        
-        ttk.Label(cred_frame, text="Admin Password:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        password_entry = ttk.Entry(cred_frame, show="*", width=30)
-        password_entry.grid(row=1, column=1, pady=5, padx=5)
-        
-        # Button frame
+        ttk.Label(cred_frame, text="Username:").grid(row=0, column=0, sticky=tk.W)
+        u_entry = ttk.Entry(cred_frame, width=25)
+        u_entry.grid(row=0, column=1)
+        ttk.Label(cred_frame, text="Password:").grid(row=1, column=0, sticky=tk.W)
+        p_entry = ttk.Entry(cred_frame, show="*", width=25)
+        p_entry.grid(row=1, column=1)
+
+        def do_reregister():
+            from core.admin_ipc_client import send_admin_request
+            resp = send_admin_request('reregister', None, {'username': u_entry.get(), 'password': p_entry.get()})
+            if resp.get('success'):
+                messagebox.showinfo("Success", "Reregistered successfully!")
+                dialog.destroy()
+                if hasattr(self, 'deregistration_handled'): del self.deregistration_handled
+            else:
+                messagebox.showerror("Error", f"Failed: {resp.get('error')}")
+
+        def do_uninstall():
+            if messagebox.askyesno("Confirm", "Uninstall FIM entirely?"):
+                from core.admin_ipc_client import send_admin_request
+                token = self.admin_verifier.get_action_token(u_entry.get(), p_entry.get(), 'uninstall')
+                if token:
+                    resp = send_admin_request('uninstall', token, {})
+                    if resp.get('success'):
+                        messagebox.showinfo("Success", "Uninstallation started.")
+                        self.on_close()
+                else:
+                    messagebox.showerror("Error", "Auth failed.")
+
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=20)
-        
-        def reregister():
-            username = username_entry.get()
-            password = password_entry.get()
-            
-            if not username or not password:
-                messagebox.showerror("Error", "Admin credentials required")
-                return
-            
-            if self.attempt_reregistration(username, password):
-                messagebox.showinfo("Success", "Machine reregistered successfully! Monitoring will resume.")
-                dialog.destroy()
-                self.start_monitoring()
-            else:
-                messagebox.showerror("Error", "Reregistration failed. Check credentials and try again.")
-        
-        def uninstall():
-            username = username_entry.get()
-            password = password_entry.get()
-            
-            if not username or not password:
-                messagebox.showerror("Error", "Admin credentials required")
-                return
-            
-            confirm = messagebox.askyesno(
-                "Confirm Uninstall",
-                "This will permanently uninstall the FIM client and clear all local data.\n\n"
-                "Server logs will be preserved.\n\nContinue?"
-            )
-            
-            if confirm:
-                token = self.admin_verifier.get_action_token(username, password, 'uninstall')
-                if token:
-                    from core.admin_ipc_client import send_admin_request
-                    response = send_admin_request('uninstall', token, {})
-                    if response.get('success'):
-                        dialog.destroy()
-                        self.uninstall_client()
-                    else:
-                        messagebox.showerror("Error", f"Uninstall failed: {response.get('error')}")
-                else:
-                    messagebox.showerror("Error", "Authentication failed or offline")
-        
-        ttk.Button(
-            btn_frame,
-            text="Reregister Machine",
-            command=reregister
-        ).pack(side=tk.LEFT, padx=5)
-        
-        ttk.Button(
-            btn_frame,
-            text="Uninstall Client",
-            command=uninstall
-        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Reregister", command=do_reregister).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Uninstall", command=do_uninstall).pack(side=tk.LEFT, padx=5)
 
-    def attempt_reregistration(self, username, password):
-        """Attempt to reregister with server"""
-        try:
-            import requests
-            response = requests.post(
-                f"{self.config.server_url}/api/clients/reregister",
-                json={
-                    'client_id': self.config.host_id,
-                    'username': username,
-                    'password': password
-                },
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                self.state.set_deregistered(False)
-                self.add_log(datetime.now().isoformat(), "✓ Reregistered successfully", "success")
-                if hasattr(self, 'change_dir_btn'):
-                    self.change_dir_btn.config(state='normal')
-                if hasattr(self, 'deregistration_handled'):
-                    delattr(self, 'deregistration_handled')
-                
-                # Automatically start monitoring after reregistration
-                self.start_monitoring()
-                return True
-            else:
-                error = response.json().get('error', 'Unknown error')
-                self.add_log(datetime.now().isoformat(), f"✗ Reregistration failed: {error}", "error")
-                return False
-        except Exception as e:
-            self.add_log(datetime.now().isoformat(), f"✗ Reregistration error: {str(e)}", "error")
-            return False
-
-    def attempt_uninstall(self, username, password):
-        """Notify server of uninstall"""
-        try:
-            import requests
-            response = requests.post(
-                f"{self.config.server_url}/api/clients/uninstall",
-                json={
-                    'client_id': self.config.host_id,
-                    'username': username,
-                    'password': password
-                },
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                self.add_log(datetime.now().isoformat(), "✓ Uninstall recorded on server", "success")
-                return True
-            else:
-                error = response.json().get('error', 'Unknown error')
-                self.add_log(datetime.now().isoformat(), f"✗ Uninstall notification failed: {error}", "error")
-                return False
-        except Exception as e:
-            self.add_log(datetime.now().isoformat(), f"✗ Uninstall error: {str(e)}", "error")
-            return False
-
-    def uninstall_client(self):
-        """Wipe local state and exit"""
-        from datetime import datetime
-        import sys
-        try:
-            self.add_log(datetime.now().isoformat(), "Uninstalling...", "warning")
-            self.stop_monitoring()
-            
-            # Wipe state file
-            if os.path.exists(self.state.state_file):
-                os.remove(self.state.state_file)
-            
-            messagebox.showinfo("Success", "Client uninstalled. The application will now close.")
-            self.root.destroy()
-            sys.exit(0)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to uninstall: {e}")    
     def on_close(self):
-        """Handle window close — stop log subscriber and exit the process cleanly."""
+        """Cleanly exit."""
         import sys
         self.stop_log_subscriber()
         self.root.destroy()
         sys.exit(0)
 
     def run(self):
-        """Run the GUI main loop"""
+        """Run the GUI."""
         self.process_queue()
         self.root.mainloop()
