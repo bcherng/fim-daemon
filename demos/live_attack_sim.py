@@ -177,8 +177,8 @@ def main():
         "Malware Dropper [1/7]",
         f"Writing rogue executable to monitored directory → FIM detects file creation in real-time."
     )
-    with open(rogue_file, "w") as f:
-        f.write("MZ\x90\x00[SIMULATED PE PAYLOAD]")
+    with open(rogue_file, "wb") as f:
+        f.write(b"MZ\x90\x00[SIMULATED PE PAYLOAD]")
 
     # ─── ATTACK 2: File Modification ─────────────────────
     print_step(
