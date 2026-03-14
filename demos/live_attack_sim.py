@@ -34,23 +34,23 @@ def print_step(title, desc):
 def fim_processes_running():
     """Return True if the FIMAdmin service OR the fim_client GUI is currently running."""
     if sys.platform == 'win32':
-        # Check 1: FIMAdmin Windows Service (production mode)
-        try:
-            result = subprocess.run(
-                ['sc', 'query', 'FIMAdmin'],
-                capture_output=True, text=True, timeout=5
-            )
-            if 'RUNNING' in result.stdout:
-                return True
-        except Exception:
-            pass
+        # Check 1: IPC Pipe (Definitive status for Admin Daemon)
+        if os.path.exists(r'\\.\pipe\FIMAdminIPC'):
+            return True
 
-        # Check 2: fim_client.py or admin_daemon.py as plain Python processes (dev mode)
+        # Check 2: GUI Window Title
+        ps_check = subprocess.run(
+            ['powershell', '-NonInteractive', '-Command', "Get-Process | Where-Object { $_.MainWindowTitle -like 'FIM Client*' }"],
+            capture_output=True, text=True
+        )
+        if ps_check.returncode == 0 and ps_check.stdout.strip():
+            return True
+
+        # Check 3: Python scripts in process list (broader match)
         try:
             ps_cmd = (
                 "Get-WmiObject Win32_Process "
-                "| Where-Object { $_.Name -eq 'python.exe' -and ("
-                "$_.CommandLine -like '*fim_client.py*' "
+                "| Where-Object { ($_.CommandLine -like '*fim_client.py*' "
                 "-or $_.CommandLine -like '*admin_daemon.py*') } "
                 "| Measure-Object | Select-Object -ExpandProperty Count"
             )
@@ -62,6 +62,14 @@ def fim_processes_running():
             if count_str.isdigit() and int(count_str) > 0:
                 return True
         except Exception:
+            pass
+            
+        # Check 4: Service status
+        try:
+            result = subprocess.run(['sc', 'query', 'FIMAdmin'], capture_output=True, text=True, timeout=5)
+            if 'RUNNING' in result.stdout:
+                return True
+        except:
             pass
 
         return False
@@ -104,23 +112,23 @@ def wait_for_fim_dead(timeout=30):
 def kill_fim():
     """Stop the FIMAdmin service (if running) and terminate any plain Python FIM processes."""
     if sys.platform == 'win32':
-        # Stop SCM service if installed
+        # Stop SCM service
         subprocess.run(['sc', 'stop', 'FIMAdmin'], capture_output=True)
-
-        # Also kill any plain Python fim processes (dev mode fallback)
-        try:
-            result = subprocess.run(
-                ['wmic', 'process', 'where', "name='python.exe'", 'get', 'ProcessId,CommandLine'],
-                capture_output=True, text=True, timeout=5
-            )
-            for line in result.stdout.splitlines():
-                if any(s in line for s in FIM_SCRIPTS):
-                    parts = line.strip().rsplit(None, 1)
-                    if len(parts) == 2 and parts[1].isdigit():
-                        subprocess.run(['taskkill', '/F', '/PID', parts[1]], capture_output=True)
-        except Exception:
-            pass
-        subprocess.run(["taskkill", "/F", "/IM", "python.exe", "/FI", "WINDOWTITLE eq FIM Client*"], capture_output=True)
+        
+        # Kill any Python processes explicitly
+        ps_kill = (
+            "Get-WmiObject Win32_Process "
+            "| Where-Object { ($_.CommandLine -like '*fim_client.py*' "
+            "-or $_.CommandLine -like '*admin_daemon.py*') } "
+            "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+        )
+        subprocess.run(['powershell', '-NonInteractive', '-Command', ps_kill], capture_output=True)
+        
+        # Force close any residual GUI windows
+        subprocess.run(['powershell', '-NonInteractive', '-Command', "Get-Process | Where-Object { $_.MainWindowTitle -like 'FIM Client*' } | Stop-Process -Force"], capture_output=True)
+        
+        # Give service time to release mutexes and pipes
+        time.sleep(3)
     else:
         subprocess.run(["pkill", "-f", "fim_client.py"], capture_output=True)
         subprocess.run(["pkill", "-f", "admin_daemon.py"], capture_output=True)
@@ -133,11 +141,18 @@ def launch_fim():
         sc_check = subprocess.run(['sc', 'query', 'FIMAdmin'], capture_output=True, text=True, timeout=5)
         if 'FIMAdmin' in sc_check.stdout:
             # Service mode: restart via SCM
-            subprocess.run(['sc', 'start', 'FIMAdmin'], capture_output=True)
+            print("   -> Starting FIMAdmin service...")
+            res = subprocess.run(['sc', 'start', 'FIMAdmin'], capture_output=True, text=True)
+            if res.returncode != 0:
+                print(f"      ⚠ Service start command failed: {res.stderr.strip()}")
+            time.sleep(1)
         else:
             # Dev mode: plain subprocess
+            print("   -> Starting admin_daemon.py as background process...")
             subprocess.Popen([sys.executable, DAEMON_PATH, "run"], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        
         # GUI is always a plain process
+        print("   -> Starting FIM Client GUI...")
         subprocess.Popen([sys.executable, CLIENT_PATH], creationflags=subprocess.CREATE_NEW_CONSOLE)
     else:
         subprocess.Popen([sys.executable, DAEMON_PATH, "run"])
@@ -218,13 +233,14 @@ def main():
             # Back up the valid config before poisoning it
             with open(sys_config_path + '.bak', 'w') as f:
                 f.write(config_raw)
+            # To show tampering is caught, we poison ONLY the directory but NOT the signature
             config['watch_directory'] = 'C:/Windows/Temp'
             with open(sys_config_path, 'w') as f:
                 json.dump(config, f, indent=2)
-            print("   -> Config rewritten: watch_directory → C:/Windows/Temp")
-            print("   -> FIM GUI will flag a config_tampered event within seconds!")
+            print("   -> Config rewritten: watch_directory → C:/Windows/Temp (Invalid Signature)")
+            print("   -> FIM service will flag 'config_tampered' in seconds!")
         except PermissionError:
-            print("   -> ✗ Permission denied — run this script as Administrator to demonstrate config tampering.")
+            print("   -> ✗ Permission denied — run this script as Administrator.")
         except Exception as e:
             print(f"   -> ✗ Failed: {e}")
     else:
