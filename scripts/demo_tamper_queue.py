@@ -34,6 +34,7 @@ def main():
     # We bypass state_mgr.enqueue_event() because it would sign the event correctly.
     # Instead, we modify the dictionary directly.
     fake_event = {
+        "client_id": state_mgr.state.get('client_id') or "demo-client",
         "id": 9999,
         "event_type": "modified",
         "file_path": "C:/Windows/System32/drivers/etc/hosts",
