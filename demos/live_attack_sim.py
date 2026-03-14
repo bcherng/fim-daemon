@@ -31,6 +31,15 @@ def print_step(title, desc):
     print(f"   -> {desc}")
 
 
+def is_admin():
+    """Return True if the script is running with Administrator privileges."""
+    try:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except:
+        return False
+
+
 def fim_processes_running():
     """Return True if the FIMAdmin service OR the fim_client GUI is currently running."""
     if sys.platform == 'win32':
@@ -113,7 +122,10 @@ def kill_fim():
     """Stop the FIMAdmin service (if running) and terminate any plain Python FIM processes."""
     if sys.platform == 'win32':
         # Stop SCM service
-        subprocess.run(['sc', 'stop', 'FIMAdmin'], capture_output=True)
+        if is_admin():
+            subprocess.run(['sc', 'stop', 'FIMAdmin'], capture_output=True)
+        else:
+            print("      ⚠ Warning: Not running as Administrator. 'sc stop' will fail.")
         
         # Kill any Python processes explicitly
         ps_kill = (
@@ -141,10 +153,14 @@ def launch_fim():
         sc_check = subprocess.run(['sc', 'query', 'FIMAdmin'], capture_output=True, text=True, timeout=5)
         if 'FIMAdmin' in sc_check.stdout:
             # Service mode: restart via SCM
-            print("   -> Starting FIMAdmin service...")
-            res = subprocess.run(['sc', 'start', 'FIMAdmin'], capture_output=True, text=True)
-            if res.returncode != 0:
-                print(f"      ⚠ Service start command failed: {res.stderr.strip()}")
+            if is_admin():
+                print("   -> Starting FIMAdmin service...")
+                res = subprocess.run(['sc', 'start', 'FIMAdmin'], capture_output=True, text=True)
+                # Ignore "service already running" error (error code 1056)
+                if res.returncode != 0 and "1056" not in res.stderr:
+                    print(f"      ⚠ Service start command returned code {res.returncode}: {res.stderr.strip()}")
+            else:
+                print("   -> (Requesting GUI to start service via internal escalation...)")
             time.sleep(1)
         else:
             # Dev mode: plain subprocess
