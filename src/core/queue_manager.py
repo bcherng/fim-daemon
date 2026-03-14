@@ -37,11 +37,9 @@ class EventQueueManager:
                 if not event:
                     break
                 
-                # Verify local signature before sending (Offline Tamper Protection)
+                # Verify local signature (Witness Mode: Log warning but don't skip)
                 if not self._verify_local_signature(event):
-                    self.log_to_gui(f"⚠ SECURITY ALERT: Local signature verification failed for event {event.get('id')}. Skipping corrupted event.", "error")
-                    self.state.dequeue_event()
-                    continue
+                    self.log_to_gui(f"⚠ SECURITY ALERT: Local signature verification failed for event {event.get('id')}. Reporting as WITNESS.", "warning")
 
                 result = self.network_client.send_event_to_server(event)
                 
