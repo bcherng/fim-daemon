@@ -32,9 +32,21 @@ def print_step(title, desc):
 
 
 def fim_processes_running():
-    """Return True if any FIM client or daemon python process is running."""
-    try:
-        if sys.platform == 'win32':
+    """Return True if the FIMAdmin service OR the fim_client GUI is currently running."""
+    if sys.platform == 'win32':
+        # Check 1: FIMAdmin Windows Service (production mode)
+        try:
+            result = subprocess.run(
+                ['sc', 'query', 'FIMAdmin'],
+                capture_output=True, text=True, timeout=5
+            )
+            if 'RUNNING' in result.stdout:
+                return True
+        except Exception:
+            pass
+
+        # Check 2: fim_client.py or admin_daemon.py as plain Python processes (dev mode)
+        try:
             ps_cmd = (
                 "Get-WmiObject Win32_Process "
                 "| Where-Object { $_.Name -eq 'python.exe' -and ("
@@ -47,12 +59,18 @@ def fim_processes_running():
                 capture_output=True, text=True, timeout=10
             )
             count_str = result.stdout.strip()
-            return count_str.isdigit() and int(count_str) > 0
-        else:
+            if count_str.isdigit() and int(count_str) > 0:
+                return True
+        except Exception:
+            pass
+
+        return False
+    else:
+        try:
             result = subprocess.run(['pgrep', '-f', '|'.join(FIM_SCRIPTS)], capture_output=True)
             return result.returncode == 0
-    except Exception:
-        return False
+        except Exception:
+            return False
 
 
 def wait_for_fim_live(timeout=60):
@@ -84,9 +102,12 @@ def wait_for_fim_dead(timeout=30):
 
 
 def kill_fim():
-    """Terminate all running FIM client and admin daemon processes."""
+    """Stop the FIMAdmin service (if running) and terminate any plain Python FIM processes."""
     if sys.platform == 'win32':
-        # Use wmic to find and kill by command line
+        # Stop SCM service if installed
+        subprocess.run(['sc', 'stop', 'FIMAdmin'], capture_output=True)
+
+        # Also kill any plain Python fim processes (dev mode fallback)
         try:
             result = subprocess.run(
                 ['wmic', 'process', 'where', "name='python.exe'", 'get', 'ProcessId,CommandLine'],
@@ -94,15 +115,12 @@ def kill_fim():
             )
             for line in result.stdout.splitlines():
                 if any(s in line for s in FIM_SCRIPTS):
-                    # Extract PID (last token on the line)
                     parts = line.strip().rsplit(None, 1)
                     if len(parts) == 2 and parts[1].isdigit():
                         subprocess.run(['taskkill', '/F', '/PID', parts[1]], capture_output=True)
         except Exception:
             pass
-        # Backup kill by window title
         subprocess.run(["taskkill", "/F", "/IM", "python.exe", "/FI", "WINDOWTITLE eq FIM Client*"], capture_output=True)
-        subprocess.run(["taskkill", "/F", "/IM", "python.exe", "/FI", "WINDOWTITLE eq FIM Admin*"], capture_output=True)
     else:
         subprocess.run(["pkill", "-f", "fim_client.py"], capture_output=True)
         subprocess.run(["pkill", "-f", "admin_daemon.py"], capture_output=True)
