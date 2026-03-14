@@ -29,6 +29,13 @@ class EventQueueManager:
         if self.processing_queue or not self.connection_mgr.connected or self.deregistered:
             return
         
+        # Prevent race conditions with a simple lock
+        if not hasattr(self, '_process_lock'):
+            self._process_lock = threading.Lock()
+            
+        if not self._process_lock.acquire(blocking=False):
+            return
+            
         self.processing_queue = True
         
         try:
@@ -85,6 +92,8 @@ class EventQueueManager:
                         break
         finally:
             self.processing_queue = False
+            if hasattr(self, '_process_lock'):
+                self._process_lock.release()
             # Race condition check: if a new event was queued while we were exiting, 
             # re-trigger processing to ensure it doesn't stay stuck.
             if self.state.get_queue_size() > 0 and self.connection_mgr.connected and not self.deregistered:
