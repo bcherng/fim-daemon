@@ -125,8 +125,13 @@ class FIMState:
         if sys.platform == 'win32' and win32crypt:
             try:
                 # CryptUnprotectData(data, entropy, reserved, prompt_struct, flags)
-                # Matches the flag used in _encrypt
-                _, decrypted_data = win32crypt.CryptUnprotectData(data, None, None, None, 0)
+                # We try both local machine and current user contexts to handle transition
+                try:
+                    # Try with machine context (flag 4) first if it was saved it that way
+                    _, decrypted_data = win32crypt.CryptUnprotectData(data, None, None, None, 4)
+                except:
+                    # Fallback to user context (flag 0) if it was an old save
+                    _, decrypted_data = win32crypt.CryptUnprotectData(data, None, None, None, 0)
                 return decrypted_data
             except Exception as e:
                 print(f"DPAPI Decryption failed: {e}")

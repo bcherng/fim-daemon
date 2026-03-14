@@ -164,7 +164,8 @@ class FIMAdminDaemon:
             from core.registration_client import RegistrationClient
 
             self.state = FIMState(state_file)
-            self.conn_mgr = RegistrationClient(self.config, self.state)
+            cb = self._make_log_callback()
+            self.conn_mgr = RegistrationClient(self.config, self.state, log_callback=cb)
 
             watch_dir = self.state.get_watch_directory()
             if not watch_dir:
@@ -578,7 +579,16 @@ class FIMAdminDaemon:
             self.logger.debug(f"Self-connection to unblock listener failed (intended): {e}")
 
     def run(self):
+        # Enforce single-instance lock globally (Service or Manual)
+        acquired, lock_obj = try_acquire_admin_lock()
+        if not acquired:
+            self.logger.critical("FIM Admin Daemon is already running (Mutex held). Exiting. [SPLIT_BRAIN_V8]")
+            return
+            
         self.logger.info(f'Starting FIM Admin Daemon on {self.config.platform_type}')
+        # Store lock to keep it alive
+        self._mutex_lock = lock_obj
+        
         # Start monitoring in background
         self._start_monitoring()
         
@@ -683,13 +693,7 @@ def try_acquire_admin_lock():
             return False, None
 
 def run_daemon():
-    """Helper to run daemon with single-instance lock"""
-    acquired, lock_obj = try_acquire_admin_lock()
-    if not acquired:
-        import logging
-        logging.critical("FIM Admin Daemon is already running. Exiting.")
-        sys.exit(1)
-        
+    """Helper to run daemon"""
     daemon = FIMAdminDaemon()
     daemon.run()
 

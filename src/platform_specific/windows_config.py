@@ -127,7 +127,8 @@ class WindowsFIMConfig(FIMConfig):
         
         # Setup logging if not skipped
         if not skip_logging:
-            log_dir = os.path.expandvars(r'%APPDATA%\FIMClient\logs')
+            base_dir = os.environ.get('PROGRAMDATA', 'C:\\ProgramData')
+            log_dir = os.path.join(base_dir, 'FIMClient', 'logs')
             ensure_directory(log_dir)
             log_file = os.path.join(log_dir, 'fim-client.log')
             self.setup_logging(log_file)

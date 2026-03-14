@@ -4,18 +4,30 @@ Server connection management with exponential backoff
 """
 import time
 import requests
+from datetime import datetime
 
 
 class RegistrationClient:
     """Manages server connection with exponential backoff"""
     
-    def __init__(self, config, state, max_backoff=600):
+    def __init__(self, config, state, log_callback=None, max_backoff=600):
         self.config = config
         self.state = state
+        self.log_callback = log_callback
         self.max_backoff = max_backoff
         self.current_backoff = 1
         self.connected = False
         self.last_attempt = 0
+    
+    def _log(self, msg, status="info"):
+        if self.log_callback:
+            self.log_callback({
+                'type': 'log',
+                'timestamp': datetime.now().isoformat(),
+                'message': msg,
+                'status': status
+            })
+        print(msg) # Still print for console mode
     
     def get_auth_headers(self):
         """Get authentication headers using device signature"""
@@ -81,7 +93,7 @@ class RegistrationClient:
                 return True
             return False
         except Exception as e:
-            print(f"Verification failed: {e}")
+            self._log(f"Verification failed: {str(e)}", "error")
             return False
     
     def register_client(self):
@@ -111,7 +123,7 @@ class RegistrationClient:
                     self.state.set_server_public_key(data['server_public_key'])
                 return True
         except Exception as e:
-            print(f"Registration failed: {e}")
+            self._log(f"Registration failed: {str(e)}", "error")
         
         return False
     

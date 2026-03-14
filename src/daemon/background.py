@@ -60,6 +60,7 @@ def run_daemon_background(config, state, conn_mgr, log_callback, watch_dir, stop
     _log(log_callback, 'FIM daemon starting...')
 
     # Initial connection with exponential backoff
+    conn_mgr.reset()
     for attempt in range(10):
         if conn_mgr.attempt_connection():
             log_callback({'type': 'status', 'connected': True})
