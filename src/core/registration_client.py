@@ -33,7 +33,7 @@ class RegistrationClient:
         """Get authentication headers using device signature"""
         headers = {
             'X-Client-ID': self.config.host_id,
-            'X-Timestamp': str(int(time.time() * 1000))
+            'X-Timestamp': str(int(time.time()))
         }
         
         if hasattr(self.state, 'device_signer') and self.state.device_signer:

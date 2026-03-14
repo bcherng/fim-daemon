@@ -477,6 +477,13 @@ class FIMAdminDaemon:
             else:
                 self.logger.error(f"Unknown connection type: {type(conn)}")
                 return
+            action = request.get('action')
+            payload = request.get('payload', {})
+
+            # Subscribe is a special long-lived action
+            if action == 'subscribe':
+                self._handle_subscribe(conn)
+                return
                 
             if not action:
                 response = {"success": False, "error": "Missing action"}
