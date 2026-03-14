@@ -124,20 +124,21 @@ def kill_fim():
         # Stop SCM service
         if is_admin():
             subprocess.run(['sc', 'stop', 'FIMAdmin'], capture_output=True)
-        else:
-            print("      ⚠ Warning: Not running as Administrator. 'sc stop' will fail.")
         
-        # Kill any Python processes explicitly
+        # Ruthless termination of all Python/Service processes
+        # Targets: plain scripts, service wrappers, and subprocess trees
         ps_kill = (
-            "Get-WmiObject Win32_Process "
-            "| Where-Object { ($_.CommandLine -like '*fim_client.py*' "
-            "-or $_.CommandLine -like '*admin_daemon.py*') } "
-            "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+            "Get-Process | Where-Object { "
+            "$_.Name -eq 'python' -or $_.Name -eq 'pythonservice' -or "
+            "$_.CommandLine -like '*admin_daemon.py*' -or "
+            "$_.CommandLine -like '*fim_client.py*' "
+            "} | Stop-Process -Force -ErrorAction SilentlyContinue"
         )
         subprocess.run(['powershell', '-NonInteractive', '-Command', ps_kill], capture_output=True)
         
-        # Force close any residual GUI windows
-        subprocess.run(['powershell', '-NonInteractive', '-Command', "Get-Process | Where-Object { $_.MainWindowTitle -like 'FIM Client*' } | Stop-Process -Force"], capture_output=True)
+        # Final fallback using taskkill tree kill
+        subprocess.run(["taskkill", "/F", "/T", "/IM", "python.exe"], capture_output=True)
+        subprocess.run(["taskkill", "/F", "/T", "/IM", "pythonservice.exe"], capture_output=True)
         
         # Give service time to release mutexes and pipes
         time.sleep(3)
@@ -255,6 +256,10 @@ def main():
                 json.dump(config, f, indent=2)
             print("   -> Config rewritten: watch_directory → C:/Windows/Temp (Invalid Signature)")
             print("   -> FIM service will flag 'config_tampered' in seconds!")
+            
+            # CRITICAL: Wait for the daemon to actually detect and report the tamper before we kill it
+            print("   ⏳ Allowing FIM service to report tamper online...")
+            time.sleep(3)
         except PermissionError:
             print("   -> ✗ Permission denied — run this script as Administrator.")
         except Exception as e:
