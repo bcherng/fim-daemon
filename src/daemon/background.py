@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-Background daemon for file monitoring
+Background daemon loop for file integrity monitoring.
+Accepts a log_callback(msg: dict) instead of a gui_queue so it can run
+inside the admin service without depending on tkinter or a thread-safe queue.
 """
 import time
 import threading
@@ -15,155 +17,118 @@ from core.utils import ensure_directory
 
 
 class WatchdogFileHandler(FileSystemEventHandler):
-    """Watchdog event handler that delegates to FIMEventHandler"""
-    
+    """Watchdog event handler that delegates to FIMEventHandler."""
+
     def __init__(self, fim_handler):
         self.fim_handler = fim_handler
-    
+
     def on_created(self, event):
         if not event.is_directory:
             self.fim_handler.detect_file_change(event.src_path, is_new=True)
-    
+
     def on_modified(self, event):
         if not event.is_directory:
             self.fim_handler.detect_file_change(event.src_path, is_new=False)
-    
+
     def on_deleted(self, event):
         if not event.is_directory:
             self.fim_handler.detect_file_change(event.src_path, is_deleted=True)
 
 
-def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_event=None):
-    """Run FIM daemon in background thread"""
-    gui_queue.put({
+def _log(callback, message, status="info", timestamp=None):
+    """Helper: invoke log_callback with a standard message dict."""
+    callback({
         'type': 'log',
-        'timestamp': datetime.now().isoformat(),
-        'message': 'FIM daemon starting...',
-        'status': 'info'
+        'timestamp': (timestamp or datetime.now()).isoformat(),
+        'message': message,
+        'status': status
     })
-    
-    # Attempt initial connection
-    max_attempts = 10
-    for attempt in range(max_attempts):
+
+
+def run_daemon_background(config, state, conn_mgr, log_callback, watch_dir, stop_event=None):
+    """
+    Run the FIM monitoring loop.
+
+    Args:
+        config       -- platform config object
+        state        -- FIMState instance
+        conn_mgr     -- RegistrationClient / ConnectionManager
+        log_callback -- callable(msg: dict) for all status/log output
+        watch_dir    -- directory to monitor
+        stop_event   -- threading.Event; set it to request a clean shutdown
+    """
+    _log(log_callback, 'FIM daemon starting...')
+
+    # Initial connection with exponential backoff
+    for attempt in range(10):
         if conn_mgr.attempt_connection():
-            gui_queue.put({'type': 'status', 'connected': True})
-            gui_queue.put({
-                'type': 'log',
-                'timestamp': datetime.now().isoformat(),
-                'message': '✓ Connected to server',
-                'status': 'success'
-            })
+            log_callback({'type': 'status', 'connected': True})
+            _log(log_callback, '✓ Connected to server', 'success')
             break
         else:
             wait_time = min(conn_mgr.current_backoff, 60)
-            gui_queue.put({
-                'type': 'log',
-                'timestamp': datetime.now().isoformat(),
-                'message': f'Connection failed, retrying in {wait_time}s...',
-                'status': 'warning'
-            })
+            _log(log_callback, f'Connection failed, retrying in {wait_time}s...', 'warning')
             time.sleep(wait_time)
-    
-    
-    # Build initial tree
+
+    # Build initial Merkle tree
     ensure_directory(watch_dir)
     tree, files = build_initial_tree(watch_dir)
-    
-    # Create event handler
-    event_handler = FIMEventHandler(tree, files, config, state, conn_mgr, gui_queue)
-    
-    # Create watchdog handler
+
+    # Set up event handling
+    event_handler = FIMEventHandler(tree, files, config, state, conn_mgr, log_callback)
     watchdog_handler = WatchdogFileHandler(event_handler)
-    
-    # Start file watching
+
     observer = Observer()
     observer.schedule(watchdog_handler, watch_dir, recursive=True)
     observer.start()
-    
-    gui_queue.put({
-        'type': 'log',
-        'timestamp': datetime.now().isoformat(),
-        'message': f'Watching {len(files)} files in {watch_dir}',
-        'status': 'success'
-    })
-    
-    # Check for pending events on startup
+
+    _log(log_callback, f'Watching {len(files)} files in {watch_dir}', 'success')
+
+    # Drain any events queued from a previous session
     pending_count = state.get_queue_size()
-    gui_queue.put({'type': 'pending', 'count': pending_count})
-    
+    log_callback({'type': 'pending', 'count': pending_count})
     if pending_count > 0 and conn_mgr.connected:
-        gui_queue.put({
-            'type': 'log',
-            'timestamp': datetime.now().isoformat(),
-            'message': f'Processing {pending_count} pending events...',
-            'status': 'info'
-        })
-        threading.Thread(
-            target=event_handler.process_event_queue,
-            daemon=True
-        ).start()
-    
-    # Main loop
-    heartbeat_interval = 360  # 6 minutes
+        _log(log_callback, f'Processing {pending_count} pending events...', 'info')
+        threading.Thread(target=event_handler.process_event_queue, daemon=True).start()
+
+    heartbeat_interval = 360
     last_heartbeat = 0
-    
     tamper_reported = False
-    
+
     try:
         while True:
             if stop_event and stop_event.is_set():
-                gui_queue.put({
-                    'type': 'log',
-                    'timestamp': datetime.now().isoformat(),
-                    'message': 'Stopping daemon...',
-                    'status': 'info'
-                })
-                break
-                
-            current_time = time.time()
-            
-            # Check for deregistration
-            if event_handler.deregistered:
-                gui_queue.put({
-                    'type': 'log',
-                    'timestamp': datetime.now().isoformat(),
-                    'message': '⚠ Client deregistered by server. Stopping monitoring.',
-                    'status': 'error'
-                })
+                _log(log_callback, 'Stopping daemon...', 'info')
                 break
 
-            # Reconnection logic
+            now = time.time()
+
+            # Deregistration check
+            if event_handler.deregistered:
+                _log(log_callback, '⚠ Client deregistered by server. Stopping monitoring.', 'error')
+                log_callback({'type': 'deregistered', 'message': 'Deregistered by server'})
+                break
+
+            # Reconnection & queue flush
             if not conn_mgr.connected:
                 if conn_mgr.attempt_connection():
-                    gui_queue.put({'type': 'status', 'connected': True})
-                    # Process pending events
-                    threading.Thread(
-                        target=event_handler.process_event_queue,
-                        daemon=True
-                    ).start()
-            
-            # Heartbeat (submit even if it fails, reset timer regardless)
-            if conn_mgr.connected and current_time - last_heartbeat >= heartbeat_interval:
+                    log_callback({'type': 'status', 'connected': True})
+                    threading.Thread(target=event_handler.process_event_queue, daemon=True).start()
+                else:
+                    log_callback({'type': 'status', 'connected': False})
+
+            # Heartbeat
+            if conn_mgr.connected and now - last_heartbeat >= heartbeat_interval:
                 event_handler.send_heartbeat()
-                last_heartbeat = current_time
-                
-            # Periodic tamper check of system_config.json
-            if current_time - last_heartbeat >= 60: # Check roughly every 60 seconds (or along with heartbeat)
-                # We can just check it directly every loop iteration because it's cheap,
-                # but to be safe we'll just check every time we do the granular sleep loop.
-                pass
-            
-            # Actually, let's just check it every 10 seconds right before the granular sleep
+                last_heartbeat = now
+
+            # Config tamper detection via watch_directory becoming None
             if state.get_watch_directory() is None:
                 if not tamper_reported:
-                    gui_queue.put({
-                        'type': 'log',
-                        'timestamp': datetime.now().isoformat(),
-                        'message': 'SECURITY ALERT: system_config.json compromised. Maintaining current valid state and syncing with server.',
-                        'status': 'error'
-                    })
-                    
-                    # Enqueue a tampered event to sync state
+                    _log(log_callback,
+                         'SECURITY ALERT: system_config.json compromised. '
+                         'Maintaining current valid state and syncing with server.',
+                         'error')
                     current_hash = state.get_last_valid_hash()
                     state.enqueue_event({
                         'client_id': config.host_id,
@@ -177,22 +142,17 @@ def run_daemon_background(config, state, conn_mgr, gui_queue, watch_dir, stop_ev
                         'timestamp': datetime.now().isoformat()
                     })
                     tamper_reported = True
-                    
-                    # Force immediate upload of this critical security event
                     if conn_mgr.connected:
-                        threading.Thread(
-                            target=event_handler.process_event_queue,
-                            daemon=True
-                        ).start()
+                        threading.Thread(target=event_handler.process_event_queue, daemon=True).start()
             else:
                 tamper_reported = False
-                
 
-            # Granular sleep to be responsive to stop_event (20 * 0.5s = 10s)
+            # Granular sleep (20 × 0.5 s = 10 s) for responsiveness to stop_event
             for _ in range(20):
                 if stop_event and stop_event.is_set():
                     break
                 time.sleep(0.5)
+
     except KeyboardInterrupt:
         pass
     finally:

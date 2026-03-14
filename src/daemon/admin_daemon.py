@@ -99,12 +99,145 @@ if sys.platform == 'win32':
                 return int(handle)
 
 class FIMAdminDaemon:
-    
+    RING_BUFFER_SIZE = 500   # log entries replayed to a freshly connecting GUI
+
     def __init__(self):
         self.config = get_config(skip_logging=True)
         self.setup_logging()
         self.sys_config_path = get_system_config_path()
         self.running = True
+
+        # --- Monitoring ownership ---
+        self._subscribers = []          # list of (pipe_handle, lock) for live GUI connections
+        self._subscribers_lock = threading.Lock()
+        self._log_ring = []             # ring buffer of last RING_BUFFER_SIZE log msgs
+        self._ring_lock = threading.Lock()
+        self._monitor_stop = threading.Event()
+        self._monitor_thread = None
+
+    def _make_log_callback(self):
+        """Return a log_callback that broadcasts to all subscribers and stores in ring buffer."""
+        def _callback(msg):
+            # Store in ring buffer
+            with self._ring_lock:
+                self._log_ring.append(msg)
+                if len(self._log_ring) > self.RING_BUFFER_SIZE:
+                    self._log_ring.pop(0)
+            # Broadcast to all connected GUI pipes
+            self._broadcast(msg)
+
+        return _callback
+
+    def _broadcast(self, msg):
+        """Write msg as newline-delimited JSON to all connected subscriber handles."""
+        encoded = (json.dumps(msg) + '\n').encode('utf-8')
+        dead = []
+        with self._subscribers_lock:
+            for entry in self._subscribers:
+                handle, lock = entry
+                try:
+                    with lock:
+                        if sys.platform == 'win32':
+                            win32file.WriteFile(handle, encoded)
+                        else:
+                            handle.sendall(encoded)
+                except Exception:
+                    dead.append(entry)
+            for d in dead:
+                self._subscribers.remove(d)
+
+    def _start_monitoring(self):
+        """Resolve state/conn objects and launch run_daemon_background in a thread."""
+        try:
+            # Build the same objects fim_client.py used to build
+            if sys.platform == 'win32':
+                state_dir = os.path.expandvars(r'%APPDATA%\FIMClient')
+            else:
+                state_dir = os.path.expanduser('~/.fim-client')
+            os.makedirs(state_dir, exist_ok=True)
+            state_file = os.path.join(state_dir, 'state.json')
+
+            from core.state import FIMState
+            from core.registration_client import RegistrationClient
+
+            state = FIMState(state_file)
+            conn_mgr = RegistrationClient(self.config, state)
+
+            watch_dir = state.get_watch_directory()
+            if not watch_dir:
+                self.logger.warning('No watch directory configured; monitoring deferred until GUI sets one.')
+                # Re-check periodically until a directory is set
+                def _wait_for_dir():
+                    while self.running and not self._monitor_stop.is_set():
+                        import time
+                        time.sleep(5)
+                        wd = state.get_watch_directory()
+                        if wd:
+                            self._launch_monitor_thread(state, conn_mgr, wd)
+                            return
+                threading.Thread(target=_wait_for_dir, daemon=True).start()
+                return
+
+            self._launch_monitor_thread(state, conn_mgr, watch_dir)
+        except Exception as e:
+            self.logger.error(f'Failed to start monitoring: {e}')
+
+    def _launch_monitor_thread(self, state, conn_mgr, watch_dir):
+        from daemon.background import run_daemon_background
+        cb = self._make_log_callback()
+        self._monitor_stop.clear()
+        self._monitor_thread = threading.Thread(
+            target=run_daemon_background,
+            args=(self.config, state, conn_mgr, cb, watch_dir, self._monitor_stop),
+            daemon=True,
+            name='FIMMonitor'
+        )
+        self._monitor_thread.start()
+        self.logger.info(f'Monitoring thread started for {watch_dir}')
+
+    def _handle_subscribe(self, conn):
+        """Long-lived connection: replay ring buffer then stream live logs to the GUI."""
+        lock = threading.Lock()
+        # Replay history
+        with self._ring_lock:
+            history = list(self._log_ring)
+        for msg in history:
+            try:
+                encoded = (json.dumps(msg) + '\n').encode('utf-8')
+                if sys.platform == 'win32' and isinstance(conn, int):
+                    win32file.WriteFile(conn, encoded)
+                else:
+                    conn.sendall(encoded)
+            except Exception:
+                return
+        # Register as live subscriber
+        entry = (conn, lock)
+        with self._subscribers_lock:
+            self._subscribers.append(entry)
+        # Block until the connection dies (client will close it on exit)
+        try:
+            while True:
+                import time
+                time.sleep(1)
+                # Probe: try a zero-byte write
+                if sys.platform == 'win32' and isinstance(conn, int):
+                    try:
+                        win32file.WriteFile(conn, b'')
+                    except Exception:
+                        break
+                elif hasattr(conn, 'fileno'):
+                    import select
+                    r, _, _ = select.select([conn], [], [], 0)
+                    if r:
+                        data = conn.recv(1, socket.MSG_PEEK)
+                        if not data:
+                            break
+        except Exception:
+            pass
+        finally:
+            with self._subscribers_lock:
+                if entry in self._subscribers:
+                    self._subscribers.remove(entry)
 
     def setup_logging(self):
         if sys.platform == 'win32':
@@ -293,7 +426,12 @@ class FIMAdminDaemon:
             action = request.get('action')
             token = request.get('token')
             payload = request.get('payload', {})
-            
+
+            # Subscribe is a special long-lived action — no token required
+            if action == 'subscribe':
+                self._handle_subscribe(conn)
+                return
+
             if not action or not token:
                 response = {"success": False, "error": "Missing action or token"}
             else:
@@ -339,9 +477,12 @@ class FIMAdminDaemon:
 
     def stop(self):
         self.running = False
+        self._monitor_stop.set()
 
     def run(self):
-        self.logger.info(f"Starting FIM Admin Daemon on {self.config.platform_type}")
+        self.logger.info(f'Starting FIM Admin Daemon on {self.config.platform_type}')
+        # Start monitoring in background
+        self._start_monitoring()
         
         if sys.platform == 'win32':
             address = r'\\.\pipe\fim_admin_ipc'

@@ -10,13 +10,13 @@ from core.file_monitor import FileMonitor
 
 class FIMEventHandler:
     """Facade for the previously monolithic Event Handler"""
-    def __init__(self, tree, files, config, state, connection_mgr, gui_queue):
+    def __init__(self, tree, files, config, state, connection_mgr, log_callback):
         """Initialize the event handler facade and its sub-components"""
         self.lock = threading.Lock()
         
-        self.network_client = NetworkClient(config, connection_mgr, gui_queue, state)
-        self.event_queue_mgr = EventQueueManager(state, self.network_client, connection_mgr, gui_queue)
-        self.file_monitor = FileMonitor(tree, files, config, state, gui_queue, self.event_queue_mgr, self.lock)
+        self.network_client = NetworkClient(config, connection_mgr, log_callback, state)
+        self.event_queue_mgr = EventQueueManager(state, self.network_client, connection_mgr, log_callback)
+        self.file_monitor = FileMonitor(tree, files, config, state, log_callback, self.event_queue_mgr, self.lock)
 
     @property
     def files(self):

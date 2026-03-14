@@ -16,13 +16,11 @@ from core.tree_builder import build_initial_tree
 class FIMClientGUI:
     """GUI for FIM Client with directory selection"""
     
-    def __init__(self, config, state, connection_mgr, admin_verifier):
+    def __init__(self, config, admin_verifier):
         self.config = config
-        self.state = state
-        self.connection_mgr = connection_mgr
         self.admin_verifier = admin_verifier
         self.queue = queue.Queue()
-        self.daemon_thread = None
+        self._subscribe_stop = threading.Event()
         
         self.root = tk.Tk()
         self.root.title(f"FIM Client - {config.host_id[:16]}")
@@ -31,13 +29,8 @@ class FIMClientGUI:
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
-        if self.state.is_deregistered():
-            self.handle_deregistration("This machine has been deregistered.")
-        elif not self.state.get_watch_directory():
-            self.root.after(500, self.prompt_directory_selection)
-        else:
-            # Schedule start_monitoring after GUI loop starts
-            self.root.after(100, self.start_monitoring)
+        # Connect to admin daemon log stream immediately
+        self.root.after(100, self.start_log_subscriber)
     
     def setup_ui(self):
         """Setup GUI components"""
@@ -291,38 +284,16 @@ class FIMClientGUI:
             command=verify_and_change
         ).pack(pady=10)
     
-    def start_monitoring(self):
-        """Start the monitoring daemon"""
-        if self.state.is_deregistered():
-            self.add_log(datetime.now().isoformat(), "Cannot start monitoring: Machine is deregistered", "error")
-            return
-            
-        if self.daemon_thread and self.daemon_thread.is_alive():
-            return
-        
-        watch_dir = self.state.get_watch_directory()
-        if not watch_dir:
-            self.add_log(datetime.now().isoformat(), "SECURITY ALERT: system_config.json compromised or missing. Monitoring aborted.", "error")
-            return
-        
-        from daemon.background import run_daemon_background
-        
-        self.stop_event = threading.Event()
-        
-        self.daemon_thread = threading.Thread(
-            target=run_daemon_background,
-            args=(
-                self.config, 
-                self.state, 
-                self.connection_mgr, 
-                self.queue, 
-                watch_dir,
-                self.stop_event
-            ),
-            daemon=True
-        )
-        self.daemon_thread.start()
-        self.add_log(datetime.now().isoformat(), "Monitoring started", "success")
+    def start_log_subscriber(self):
+        """Subscribe to the admin daemon's log broadcast channel."""
+        from core.admin_ipc_client import subscribe_to_logs
+        self._subscribe_stop.clear()
+        subscribe_to_logs(self.queue.put, stop_event=self._subscribe_stop)
+        self.add_log(datetime.now().isoformat(), 'Connected to FIM service log stream', 'success')
+
+    def stop_log_subscriber(self):
+        """Signal the subscriber thread to exit."""
+        self._subscribe_stop.set()
     
     def add_log(self, timestamp, message, status="info"):
         """Add log entry to text widget"""
@@ -562,12 +533,12 @@ class FIMClientGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to uninstall: {e}")    
     def on_close(self):
-        """Handle window close — stop monitoring and exit the process cleanly."""
+        """Handle window close — stop log subscriber and exit the process cleanly."""
         import sys
-        self.stop_monitoring()
+        self.stop_log_subscriber()
         self.root.destroy()
         sys.exit(0)
-    
+
     def run(self):
         """Run the GUI main loop"""
         self.process_queue()

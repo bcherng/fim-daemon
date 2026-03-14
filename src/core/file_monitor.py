@@ -9,18 +9,18 @@ from core.merkle import build_merkle_tree, get_merkle_path
 from core.utils import sha256_file
 
 class FileMonitor:
-    def __init__(self, tree, files, config, state, gui_queue, event_queue_mgr, lock):
+    def __init__(self, tree, files, config, state, log_callback, event_queue_mgr, lock):
         self.tree = tree
         self.files = files
         self.config = config
         self.state = state
-        self.gui_queue = gui_queue
+        self.log_callback = log_callback
         self.event_queue_mgr = event_queue_mgr
         self.lock = lock
         self.deregistered = False
 
     def log_to_gui(self, message, status="info"):
-        self.gui_queue.put({
+        self.log_callback({
             'type': 'log',
             'timestamp': datetime.now().isoformat(),
             'message': message,
@@ -81,6 +81,6 @@ class FileMonitor:
             
             self.state.enqueue_event(event_data)
             self.log_to_gui(f"Queued: {event_data['event_type']} - {file_path}", "info")
-            self.gui_queue.put({'type': 'pending', 'count': self.state.get_queue_size()})
+            self.log_callback({'type': 'pending', 'count': self.state.get_queue_size()})
             
             self.event_queue_mgr.start_processing()

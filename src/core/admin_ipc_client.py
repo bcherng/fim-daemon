@@ -76,3 +76,90 @@ def send_admin_request(action, token, payload=None, timeout=5.0):
     except Exception as e:
         import traceback
         return {"success": False, "error": f"IPC connection error: {str(e)}", "traceback": traceback.format_exc()}
+
+
+def subscribe_to_logs(callback, stop_event=None):
+    """
+    Open a persistent connection to the admin daemon log broadcast channel.
+
+    Reads newline-delimited JSON messages in a background thread and calls
+    callback(msg: dict) for each one.  Automatically reconnects on disconnect
+    (up to once per 3 seconds) until stop_event is set.
+
+    Args:
+        callback   -- callable(msg: dict) — usually queues into the GUI's queue
+        stop_event -- threading.Event; set it to stop the subscriber thread
+    """
+    import threading
+    import time
+
+    address = get_ipc_address()
+    subscribe_request = json.dumps({"action": "subscribe", "token": None, "payload": {}}).encode('utf-8')
+
+    def _reader():
+        while stop_event is None or not stop_event.is_set():
+            try:
+                if sys.platform == 'win32':
+                    import win32pipe, win32file
+                    # Open a fresh pipe instance for the long-lived subscribe connection
+                    handle = win32file.CreateFile(
+                        address,
+                        win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                        0, None,
+                        win32file.OPEN_EXISTING,
+                        0, None
+                    )
+                    # Switch to message-read mode
+                    win32pipe.SetNamedPipeHandleState(
+                        handle,
+                        win32pipe.PIPE_READMODE_MESSAGE,
+                        None, None
+                    )
+                    win32file.WriteFile(handle, subscribe_request)
+                    # Read loop
+                    buf = b''
+                    while stop_event is None or not stop_event.is_set():
+                        try:
+                            _, data = win32file.ReadFile(handle, 65536)
+                            buf += data
+                            while b'\n' in buf:
+                                line, buf = buf.split(b'\n', 1)
+                                line = line.strip()
+                                if line:
+                                    try:
+                                        callback(json.loads(line))
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            break
+                    try:
+                        win32file.CloseHandle(handle)
+                    except Exception:
+                        pass
+                else:
+                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    sock.connect(address)
+                    sock.sendall(subscribe_request + b'\n')
+                    buf = b''
+                    while stop_event is None or not stop_event.is_set():
+                        chunk = sock.recv(4096)
+                        if not chunk:
+                            break
+                        buf += chunk
+                        while b'\n' in buf:
+                            line, buf = buf.split(b'\n', 1)
+                            line = line.strip()
+                            if line:
+                                try:
+                                    callback(json.loads(line))
+                                except Exception:
+                                    pass
+                    sock.close()
+            except Exception:
+                pass
+            # Reconnect pause
+            time.sleep(3)
+
+    t = threading.Thread(target=_reader, daemon=True, name='FIMLogSubscriber')
+    t.start()
+    return t

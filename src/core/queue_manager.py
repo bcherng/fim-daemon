@@ -6,16 +6,16 @@ import threading
 from datetime import datetime
 
 class EventQueueManager:
-    def __init__(self, state, network_client, connection_mgr, gui_queue):
+    def __init__(self, state, network_client, connection_mgr, log_callback):
         self.state = state
         self.network_client = network_client
         self.connection_mgr = connection_mgr
-        self.gui_queue = gui_queue
+        self.log_callback = log_callback
         self.processing_queue = False
         self.deregistered = False
 
     def log_to_gui(self, message, status="info"):
-        self.gui_queue.put({
+        self.log_callback({
             'type': 'log',
             'timestamp': datetime.now().isoformat(),
             'message': message,
@@ -52,10 +52,10 @@ class EventQueueManager:
                         )
                         self.state.dequeue_event()
                         self.log_to_gui(
-                            f"✓ Synced: {event['event_type']} - {event.get('file_path', 'N/A')}", 
+                            f"✓ Synced: {event['event_type']} - {event.get('file_path', 'N/A')}",
                             "success"
                         )
-                        self.gui_queue.put({'type': 'pending', 'count': self.state.get_queue_size()})
+                        self.log_callback({'type': 'pending', 'count': self.state.get_queue_size()})
                     else:
                         self.log_to_gui("⚠ Acknowledgement failed, will retry", "warning")
                         self.connection_mgr.mark_disconnected()

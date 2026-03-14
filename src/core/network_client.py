@@ -6,11 +6,11 @@ import requests
 from datetime import datetime
 
 class NetworkClient:
-    def __init__(self, config, connection_mgr, gui_queue, state):
+    def __init__(self, config, connection_mgr, log_callback, state):
         """Initialize the network client with configuration and shared state"""
         self.config = config
         self.connection_mgr = connection_mgr
-        self.gui_queue = gui_queue
+        self.log_callback = log_callback
         self.state = state
         self.deregistered = False
 
@@ -33,7 +33,7 @@ class NetworkClient:
 
                 self.connection_mgr.connected = True
                 self.connection_mgr.current_backoff = 1
-                self.gui_queue.put({'type': 'status', 'connected': True})
+                self.log_callback({'type': 'status', 'connected': True})
                 return {
                     'success': True,
                     'event_id': data['event_id'],
@@ -57,7 +57,7 @@ class NetworkClient:
                     
                 if data.get('status') == 'deregistered':
                     self.deregistered = True
-                    self.gui_queue.put({
+                    self.log_callback({
                         'type': 'deregistered',
                         'message': data.get('message', 'This machine has been deregistered by the administrator.')
                     })
@@ -70,7 +70,7 @@ class NetworkClient:
                      return {'success': False, 'rejected': True, 'reason': 'Security Error: Invalid Server Signature'}
 
                 if "not registered" in data.get('error', '').lower():
-                    self.gui_queue.put({'type': 'removal_detected'})
+                    self.log_callback({'type': 'removal_detected'})
                     return {'success': False, 'rejected': True, 'reason': 'Machine removed from server'}
                 return {'success': False, 'rejected': False}
             else:
@@ -105,7 +105,7 @@ class NetworkClient:
                     return False
                 self.connection_mgr.connected = True
                 self.connection_mgr.current_backoff = 1
-                self.gui_queue.put({'type': 'status', 'connected': True})
+                self.log_callback({'type': 'status', 'connected': True})
                 return True
             return False
         except:
@@ -137,14 +137,14 @@ class NetworkClient:
                     return False
                 self.connection_mgr.connected = True
                 self.connection_mgr.current_backoff = 1
-                self.gui_queue.put({'type': 'status', 'connected': True})
+                self.log_callback({'type': 'status', 'connected': True})
                 return True
             elif response.status_code == 403:
                 data = response.json()
                 self._verify_server_response(data)
                 if data.get('status') == 'deregistered':
                     self.deregistered = True
-                    self.gui_queue.put({
+                    self.log_callback({
                         'type': 'deregistered',
                         'message': data.get('message', 'This machine has been deregistered.')
                     })
@@ -183,14 +183,14 @@ class NetworkClient:
             return True
             
         self.config.logger.error("MODIFIED SERVER RESPONSE DETECTED! Signature verification failed.")
-        self.gui_queue.put({
+        self.log_callback({
             'type': 'log',
             'timestamp': datetime.now().isoformat(),
             'message': '✗ Security Error: Server signature verification failed',
             'status': 'error'
         })
-        self.gui_queue.put({
-            'type': 'status_message', 
+        self.log_callback({
+            'type': 'status_message',
             'message': 'SECURITY ALERT: Received invalid server signature!',
             'level': 'error'
         })
