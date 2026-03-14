@@ -4,6 +4,7 @@ Server connection management with exponential backoff
 """
 import time
 import requests
+import json
 from datetime import datetime
 
 
@@ -126,12 +127,11 @@ class RegistrationClient:
             else:
                 try:
                     resp_json = response.json()
-                    error_details = resp_json.get('details', 'No details provided')
-                    msg = f"Registration rejected by server (400): {error_details}"
+                    msg = f"Registration rejected by server ({response.status_code}): {json.dumps(resp_json)}"
                     self._log(msg, "error")
                     self.logger.error(msg)
                 except:
-                    msg = f"Registration rejected by server ({response.status_code})"
+                    msg = f"Registration rejected by server ({response.status_code}): {response.text}"
                     self._log(msg, "error")
                     self.logger.error(msg)
         except Exception as e:
