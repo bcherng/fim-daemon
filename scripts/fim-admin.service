@@ -1,0 +1,23 @@
+[Unit]
+Description=FIM Admin Daemon
+Documentation=https://github.com/your-org/fim-daemon
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/fim-daemon/src/daemon/admin_daemon.py run
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Security hardening
+User=root
+ProtectSystem=strict
+ReadWritePaths=/etc/fim /var/lib/fim /var/run
+PrivateTmp=true
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target

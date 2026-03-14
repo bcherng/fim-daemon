@@ -66,13 +66,31 @@ def main():
         print("FIM Client is already running. Exiting.")
         sys.exit(0)
         
-    # Ensure admin daemon is running (relies on its own lock to avoid duplicates)
+    # Ensure admin daemon is running.
+    # Production: start as Windows SCM service (auto-restart, restricted permissions).
+    # Development fallback: spawn as raw subprocess if the service is not installed.
     import subprocess
     daemon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src', 'daemon', 'admin_daemon.py')
+
+    _service_started = False
     if sys.platform == 'win32':
-        subprocess.Popen([sys.executable, daemon_path, "run"], creationflags=subprocess.CREATE_NEW_CONSOLE)
-    else:
-        subprocess.Popen([sys.executable, daemon_path, "run"])
+        try:
+            import win32serviceutil
+            import win32service
+            status = win32serviceutil.QueryServiceStatus('FIMAdmin')
+            # status[1] == SERVICE_RUNNING (4)
+            if status[1] != win32service.SERVICE_RUNNING:
+                win32serviceutil.StartService('FIMAdmin')
+            _service_started = True
+        except Exception:
+            # Service not installed — fall back to development subprocess spawn
+            _service_started = False
+
+    if not _service_started:
+        if sys.platform == 'win32':
+            subprocess.Popen([sys.executable, daemon_path, "run"], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        else:
+            subprocess.Popen([sys.executable, daemon_path, "run"])
         
         
     # Initialize configuration
