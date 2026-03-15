@@ -19,6 +19,7 @@ class FIMConfig:
         self.watch_dir = watch_dir
         self.pid_file = pid_file
         self.server_cert = None # Path to server certificate for pinning
+        self.logger = logging.getLogger(__name__) # Default logger if setup_logging not called
         
     def setup_logging(self, log_file):
         """Setup logging with provided log file path"""
