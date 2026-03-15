@@ -53,56 +53,61 @@ class EventQueueManager:
                 if not self._verify_local_signature(event):
                     self.log_to_gui(f"⚠ SECURITY ALERT: Local signature verification failed for event {event.get('id')}. Reporting as WITNESS.", "warning")
 
-                result = self.network_client.send_event_to_server(event)
-                
-                if result['success']:
-                    # Update local state if the server actually accepted the integrity
-                    if result.get('accepted', True):
-                        ack_result = self.network_client.send_acknowledgement(
-                            result['event_id'], 
-                            result['validation']
-                        )
-                        if ack_result:
-                            self.state.update_last_valid_hash(
-                                event['root_hash'],
-                                result['validation']
+                try:
+                    result = self.network_client.send_event_to_server(event)
+                    
+                    if result['success']:
+                        # Update local state if the server actually accepted the integrity
+                        if result.get('accepted', True):
+                            ack_result = self.network_client.send_acknowledgement(
+                                result.get('event_id'), 
+                                result.get('validation')
                             )
+                            if ack_result:
+                                self.state.update_last_valid_hash(
+                                    event.get('root_hash'),
+                                    result.get('validation')
+                                )
+                            else:
+                                self.log_to_gui("⚠ Acknowledgement failed, will retry", "warning")
+                                self.connection_mgr._last_security_error = time.time() # Backoff on ack failure too
+                                self.connection_mgr.mark_disconnected()
+                                break
                         else:
-                            self.log_to_gui("⚠ Acknowledgement failed, will retry", "warning")
-                            self.connection_mgr._last_security_error = time.time() # Backoff on ack failure too
+                            self.log_to_gui(f"⚠ Integrity Conflict recorded by server: {event.get('file_path', 'N/A')}", "warning")
+
+                        # If it was recorded (even if integrity was rejected), we pop and continue
+                        if result.get('recorded', True):
+                            self.state.dequeue_event()
+                            self.log_callback({'type': 'pending', 'count': self.state.get_queue_size()})
+                            continue
+                            
+                    else:
+                        if self.network_client.deregistered:
+                            self.deregistered = True
+                            break
+                        
+                        if result.get('rejected'):
+                            self.log_to_gui(f"Event rejected: {result.get('reason')}", "error")
+                            
+                            if "Security Error" in result.get('reason', ''):
+                                self.connection_mgr._last_security_error = time.time()
+                                break
+
+                            # Dequeue and continue to allow subsequent events (audit trail)
+                            self.state.dequeue_event()
+                            self.log_callback({'type': 'pending', 'count': self.state.get_queue_size()})
+                            continue
+                        else:
+                            self.log_to_gui("⚠ Connection lost, will retry", "warning")
                             self.connection_mgr.mark_disconnected()
                             break
-                    else:
-                        self.log_to_gui(f"⚠ Integrity Conflict recorded by server: {event.get('file_path', 'N/A')}", "warning")
-
-                    # If it was recorded (even if integrity was rejected), we pop and continue
-                    if result.get('recorded', True):
-                        self.state.dequeue_event()
-                        self.log_callback({'type': 'pending', 'count': self.state.get_queue_size()})
-                        # Continue the loop to process the next event
-                        continue
-                else:
-                    if self.network_client.deregistered:
-                        self.deregistered = True
-                        break
-                    
-                    if result.get('rejected'):
-                        self.log_to_gui(f"Event rejected: {result.get('reason')}", "error")
-                        
-                        if "Security Error" in result.get('reason', ''):
-                            self.connection_mgr._last_security_error = time.time()
-                            # Do NOT dequeue on security error - we want to retry but with backoff
-                            # This prevents spamming when server keys rotate or are mismatched
-                            break
-
-                        # Dequeue and continue to allow subsequent events (audit trail)
-                        self.state.dequeue_event()
-                        self.log_callback({'type': 'pending', 'count': self.state.get_queue_size()})
-                        continue
-                    else:
-                        self.log_to_gui("⚠ Connection lost, will retry", "warning")
-                        self.connection_mgr.mark_disconnected()
-                        break
+                            
+                except Exception as e:
+                    import time
+                    self.log_to_gui(f"Error processing single event: {str(e)}", "error")
+                    time.sleep(2)
+                    break
         finally:
             self.processing_queue = False
             if hasattr(self, '_process_lock'):
