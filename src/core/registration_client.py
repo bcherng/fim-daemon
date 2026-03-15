@@ -21,6 +21,7 @@ class RegistrationClient:
         self.last_attempt = 0
         import logging
         self.logger = logging.getLogger(__name__)
+        self._last_security_error = 0
     
     def _log(self, msg, status="info"):
         if self.log_callback:

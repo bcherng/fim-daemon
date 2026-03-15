@@ -29,6 +29,7 @@ class NetworkClient:
                 data = response.json()
                 
                 if not self._verify_server_response(data):
+                    self.connection_mgr._last_security_error = time.time()
                     return {'success': False, 'rejected': True, 'reason': 'Security Error: Invalid Server Signature'}
 
                 self.connection_mgr.connected = True
@@ -137,6 +138,7 @@ class NetworkClient:
             if response.status_code == 200:
                 data = response.json()
                 if not self._verify_server_response(data):
+                    self.connection_mgr._last_security_error = time.time()
                     return False
                 self.connection_mgr.connected = True
                 self.connection_mgr.current_backoff = 1
@@ -189,7 +191,7 @@ class NetworkClient:
         self.log_callback({
             'type': 'log',
             'timestamp': datetime.now().isoformat(),
-            'message': '✗ Security Error: Server signature verification failed',
+            'message': f'✗ Security Error: Server signature failure. Payload: {json.dumps(payload)}',
             'status': 'error'
         })
         self.log_callback({

@@ -31,7 +31,7 @@ class EventQueueManager:
             return
             
         import time
-        if time.time() - self._last_security_error < 5:
+        if time.time() - self.connection_mgr._last_security_error < 5:
             return
         
         # Prevent race conditions with a simple lock
@@ -69,7 +69,7 @@ class EventQueueManager:
                             )
                         else:
                             self.log_to_gui("⚠ Acknowledgement failed, will retry", "warning")
-                            self._last_security_error = time.time() # Backoff on ack failure too
+                            self.connection_mgr._last_security_error = time.time() # Backoff on ack failure too
                             self.connection_mgr.mark_disconnected()
                             break
                     else:
@@ -90,7 +90,7 @@ class EventQueueManager:
                         self.log_to_gui(f"Event rejected: {result.get('reason')}", "error")
                         
                         if "Security Error" in result.get('reason', ''):
-                            self._last_security_error = time.time()
+                            self.connection_mgr._last_security_error = time.time()
                             # Do NOT dequeue on security error - we want to retry but with backoff
                             # This prevents spamming when server keys rotate or are mismatched
                             break
