@@ -13,6 +13,7 @@ class EventQueueManager:
         self.log_callback = log_callback
         self.processing_queue = False
         self.deregistered = False
+        self._last_security_error = 0
 
     def log_to_gui(self, message, status="info"):
         self.log_callback({
@@ -27,6 +28,10 @@ class EventQueueManager:
 
     def process_queue(self):
         if self.processing_queue or not self.connection_mgr.connected or self.deregistered:
+            return
+            
+        import time
+        if time.time() - self._last_security_error < 5:
             return
         
         # Prevent race conditions with a simple lock
@@ -82,6 +87,13 @@ class EventQueueManager:
                     
                     if result.get('rejected'):
                         self.log_to_gui(f"Event rejected: {result.get('reason')}", "error")
+                        
+                        if "Security Error" in result.get('reason', ''):
+                            self._last_security_error = time.time()
+                            # Do NOT dequeue on security error - we want to retry but with backoff
+                            # This prevents spamming when server keys rotate or are mismatched
+                            break
+
                         # Dequeue and continue to allow subsequent events (audit trail)
                         self.state.dequeue_event()
                         self.log_callback({'type': 'pending', 'count': self.state.get_queue_size()})

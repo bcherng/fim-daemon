@@ -118,6 +118,11 @@ class ServerVerifier:
                 
             signature = bytes.fromhex(signature_hex)
             
+            # Diagnostic logging for signature issues
+            # print(f"[DEBUG] Verifying Server Signature:")
+            # print(f"[DEBUG] Payload String: {payload_string}")
+            # print(f"[DEBUG] Signature Hex: {signature_hex[:20]}...")
+
             self.public_key.verify(
                 signature,
                 payload_string.encode('utf-8'),
@@ -128,7 +133,8 @@ class ServerVerifier:
                 hashes.SHA256()
             )
             return True
-        except (InvalidSignature, ValueError, TypeError):
+        except (InvalidSignature, ValueError, TypeError) as e:
+            # print(f"[DEBUG] Signature Invalid: {e}")
             return False
         except Exception as e:
             print(f"Verification error: {e}")
