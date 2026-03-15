@@ -59,7 +59,7 @@ def main():
     print("2. Check the logs at C:\\ProgramData\\FIMClient\\logs\\admin_daemon.log")
     print("3. You should see: 'SECURITY ALERT: Local event queue integrity check failed!'")
     print("   Or if the service was already running, the QueueManager will log:")
-    print("   '⚠ SECURITY ALERT: Local signature verification failed for event 9999'")
+    print("   '⚠ SECURITY ALERT: Local signature verification failed for event [TIMESTAMP]'")
 
 if __name__ == "__main__":
     main()
