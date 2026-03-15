@@ -35,7 +35,7 @@ def main():
     # Instead, we modify the dictionary directly.
     fake_event = {
         "client_id": state_mgr.state.get('client_id') or "demo-client",
-        "id": 9999,
+        "id": int(time.time()),
         "event_type": "modified",
         "file_path": "C:/Windows/System32/drivers/etc/hosts",
         "old_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
