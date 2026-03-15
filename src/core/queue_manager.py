@@ -69,6 +69,7 @@ class EventQueueManager:
                             )
                         else:
                             self.log_to_gui("⚠ Acknowledgement failed, will retry", "warning")
+                            self._last_security_error = time.time() # Backoff on ack failure too
                             self.connection_mgr.mark_disconnected()
                             break
                     else:

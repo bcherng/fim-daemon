@@ -104,6 +104,7 @@ class NetworkClient:
             if response.status_code == 200:
                 data = response.json()
                 if not self._verify_server_response(data):
+                    self._last_security_error = time.time()
                     return False
                 self.connection_mgr.connected = True
                 self.connection_mgr.current_backoff = 1

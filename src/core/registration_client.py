@@ -85,9 +85,8 @@ class RegistrationClient:
                         {k: v for k, v in data.items() if k != 'signature'}, 
                         data.get('signature')
                     ):
-                        # If verification fails, it might be due to an outdated key.
-                        # We don't update yet, but we log the warning.
-                        print("Warning: Received invalid server signature during verification.")
+                        print("SECURITY ERROR: Invalid server signature during verification!")
+                        return False
                     
                 # Synchronize public key if provided
                 if 'server_public_key' in data:
@@ -121,6 +120,14 @@ class RegistrationClient:
             
             if response.status_code == 200:
                 data = response.json()
+                # Verify server signature
+                if not self.state.server_verifier.verify_signature(
+                    {k: v for k, v in data.items() if k != 'signature'}, 
+                    data.get('signature')
+                ):
+                    print("SECURITY ERROR: Invalid server signature during registration!")
+                    return False
+                    
                 self.logger.info(f"Registration successful for client: {self.config.host_id}")
                 if 'server_public_key' in data:
                     self.state.set_server_public_key(data['server_public_key'])
