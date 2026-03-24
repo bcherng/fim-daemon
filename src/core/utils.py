@@ -4,12 +4,18 @@ import os
 
 def sha256_file(path, max_retries=3, retry_delay=0.1):
     """
-    Compute SHA-256 hash of a file with retry logic for locked files
+    Compute SHA-256 hash of a file with retry logic for locked files.
+    Includes file metadata (mtime, ctime) to detect offline 'perfect restore' attacks.
     """
     h = hashlib.sha256()
     
     for attempt in range(max_retries):
         try:
+            # Include metadata in the hash to detect offline restores
+            stat = os.stat(path)
+            metadata = f"{stat.st_mtime}:{stat.st_ctime}".encode('utf-8')
+            h.update(metadata)
+            
             with open(path, "rb") as f:
                 for chunk in iter(lambda: f.read(4096), b""):
                     h.update(chunk)
