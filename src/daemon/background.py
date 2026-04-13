@@ -75,6 +75,24 @@ def run_daemon_background(config, state, conn_mgr, log_callback, watch_dir, stop
     ensure_directory(watch_dir)
     tree, files = build_initial_tree(watch_dir)
 
+    # Detect offline baseline tampering
+    last_valid_hash = state.get_last_valid_hash()
+    if tree and last_valid_hash:
+        root_hash = tree[0][0] if isinstance(tree[0][0], str) else tree[0][0].hex()
+        if root_hash != last_valid_hash:
+            _log(log_callback, 'SECURITY ALERT: Offline tampering detected during startup scan!', 'error')
+            state.enqueue_event({
+                'client_id': config.host_id,
+                'event_type': 'offline_tampering',
+                'file_path': watch_dir,
+                'old_hash': last_valid_hash,
+                'new_hash': root_hash,
+                'root_hash': root_hash,
+                'last_valid_hash': last_valid_hash,
+                'merkle_proof': None,
+                'timestamp': datetime.now().isoformat()
+            })
+
     # Set up event handling
     event_handler = FIMEventHandler(tree, files, config, state, conn_mgr, log_callback)
     watchdog_handler = WatchdogFileHandler(event_handler)
